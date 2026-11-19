@@ -1,0 +1,19 @@
+{
+  "name": "ldoc",
+  "like": "neutral",
+  "mode": "both",
+  "settings": [
+    {
+      "thing": "font",
+      "value": "\"Noto Sans CJK KR\", \"Noto Sans KR\", \"Apple SD Gothic Neo\", \"Malgun Gothic\", sans-serif",
+      "source": "dial"
+    },
+    {
+      "thing": "accent",
+      "value": "#24508F",
+      "source": "dial"
+    }
+  ],
+  "lifted": [],
+  "palette": "385b009b067d25c9ca0132f75cce61fdd4b273e5b4c82a4eb71750447948a447"
+}

@@ -750,7 +750,6 @@ fn notices(request: &Request) -> Vec<String> {
         "채무자가 송달받고 14일 안에 이의신청하지 않으면 지급명령이 확정됩니다. 이의신청이 있으면 통상의 민사소송으로 넘어갑니다.",
         "지급명령은 공시송달이 되지 않습니다. 송달이 안 되면 주소보정이나 소제기신청으로 전환해야 합니다.",
         "송달료 단가와 법정이율은 바뀔 수 있습니다. 제출 전에 최신 기준을 확인하세요.",
-        "이 문서는 참고용이며 법률 자문이 아닙니다. 법률 전문가의 검토 후 사용하십시오.",
     ];
     limitation_notice(request)
         .into_iter()
@@ -1154,6 +1153,12 @@ mod tests {
                 .with("creditor_trade_name", "가나상회"),
         );
         assert!(sole.contains("소멸시효 3년이"), "{sole}");
+    }
+
+    #[test]
+    fn the_disclaimer_is_left_to_the_screen() {
+        let notices = draft_document(KIND.id, &corporate_case()).unwrap().notices;
+        assert!(!notices.iter().any(|notice| notice.contains("법률 자문")));
     }
 
     #[test]

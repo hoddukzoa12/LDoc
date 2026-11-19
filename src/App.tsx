@@ -1,9 +1,24 @@
+import { AppShell } from "@astryxdesign/core/AppShell";
+import { Banner } from "@astryxdesign/core/Banner";
+import { Center } from "@astryxdesign/core/Center";
+import { ClickableCard } from "@astryxdesign/core/ClickableCard";
+import { Grid } from "@astryxdesign/core/Grid";
+import { InternationalizationProvider } from "@astryxdesign/core/i18n";
+import { Layout, LayoutContent, LayoutHeader } from "@astryxdesign/core/Layout";
+import koKR from "@astryxdesign/core/locales/ko-KR.generated.js";
+import { Spinner } from "@astryxdesign/core/Spinner";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { Step, Stepper } from "@astryxdesign/core/Stepper";
+import { Heading, Text } from "@astryxdesign/core/Text";
+import { Theme } from "@astryxdesign/core/theme";
+import { TopNav } from "@astryxdesign/core/TopNav";
 import { useEffect, useState } from "react";
-import icon from "../assets/icon.svg";
+import { defaultThemeSlug, themes } from "./astryx-themes";
 import type { DocSummary } from "./bindings/DocSummary";
 import type { Draft } from "./bindings/Draft";
 import type { FieldError } from "./bindings/FieldError";
 import type { Form } from "./bindings/Form";
+import { Disclaimer } from "./Disclaimer";
 import { EditorScreen } from "./EditorScreen";
 import { FormScreen } from "./FormScreen";
 import * as ipc from "./ipc";
@@ -28,6 +43,9 @@ const PHASES: { kind: Screen["kind"]; label: string }[] = [
   { kind: "filling", label: "내용 입력" },
   { kind: "editing", label: "초안 편집" },
 ];
+
+/** The phase stepper's width in the top bar: three labels at the stepper's minimum step width and a little air. */
+const PHASES_WIDTH = 420;
 
 /**
  * Where asking the core for a draft leads. Leaving a step only needs that
@@ -77,80 +95,111 @@ export function App() {
     setScreen(afterDraft(filling, await ipc.draft(filling.doc.id, filling.answers)));
   }
 
-  const doc = screen.kind === "filling" || screen.kind === "editing" ? screen.filling.doc : null;
   const phase = PHASES.findIndex((candidate) => candidate.kind === screen.kind);
 
   return (
-    <div className="app">
-      <header className="topbar">
-        <div className="brand">
-          <img src={icon} alt="" width={28} height={28} />
-          <span>LDoc</span>
-        </div>
-        {doc && <div className="topbar-title">{doc.title}</div>}
-        <ol className="phases">
-          {PHASES.map((candidate, index) => (
-            <li
-              key={candidate.kind}
-              className={index === phase ? "current" : index < phase ? "done" : undefined}
-            >
-              <span className="phase-num">{index + 1}</span>
-              {candidate.label}
-            </li>
-          ))}
-        </ol>
-      </header>
+    <Theme theme={themes[defaultThemeSlug]} mode="light">
+      <InternationalizationProvider locale="ko-KR" messages={{ "ko-KR": koKR }}>
+        <AppShell
+          variant="section"
+          banner={
+            problem && (
+              <Banner
+                status="error"
+                container="section"
+                role="alert"
+                title="문제가 생겼습니다"
+                description={problem}
+                isDismissable
+                dismissLabel="오류 알림 닫기"
+                onDismiss={() => setProblem(null)}
+              />
+            )
+          }
+          topNav={
+            <TopNav
+              label="LDoc"
+              heading={
+                <Text type="large" weight="bold">
+                  LDoc
+                </Text>
+              }
+              endContent={
+                <HStack width={PHASES_WIDTH}>
+                  <Stepper activeStep={Math.max(phase, 0)} label="작성 단계" density="compact">
+                    {PHASES.map((candidate, index) => (
+                      <Step key={candidate.kind} step={index} label={candidate.label} />
+                    ))}
+                  </Stepper>
+                </HStack>
+              }
+            />
+          }
+        >
+          {screen.kind === "loading" && (
+            <Center height="100%">
+              <Spinner size="lg" label="불러오는 중" />
+            </Center>
+          )}
 
-      {problem && (
-        <div className="problem" role="alert">
-          <span>{problem}</span>
-          <button type="button" className="link" onClick={() => setProblem(null)}>
-            닫기
-          </button>
-        </div>
-      )}
+          {screen.kind === "choosing" && <ChoosingScreen catalog={screen.catalog} onStart={(doc) => start(doc).catch(report)} />}
 
-      <main className="main">
-        {screen.kind === "loading" && <p className="loading">불러오는 중…</p>}
+          {screen.kind === "filling" && (
+            <FormScreen
+              filling={screen.filling}
+              onChange={(filling) => setScreen({ kind: "filling", filling })}
+              onNext={() => next(screen.filling).catch(report)}
+            />
+          )}
 
-        {screen.kind === "choosing" && (
-          <section className="choosing">
-            <h1>어떤 문서를 작성할까요?</h1>
-            <p className="lead">질문에 답하면 비용과 문안을 계산한 초안을 만들어 드립니다.</p>
-            <div className="catalog">
-              {screen.catalog.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className="catalog-card"
-                  data-doc={item.id}
-                  onClick={() => start(item).catch(report)}
-                >
-                  <span className="badge">{item.category}</span>
-                  <span className="catalog-title">{item.title}</span>
-                  <span className="catalog-action">작성 시작 →</span>
-                </button>
+          {screen.kind === "editing" && (
+            <EditorScreen
+              title={screen.filling.doc.title}
+              draft={screen.draft}
+              onBack={() => setScreen({ kind: "filling", filling: screen.filling })}
+            />
+          )}
+        </AppShell>
+      </InternationalizationProvider>
+    </Theme>
+  );
+}
+
+function ChoosingScreen({ catalog, onStart }: { catalog: DocSummary[]; onStart: (doc: DocSummary) => void }) {
+  return (
+    <Layout
+      header={
+        <LayoutHeader hasDivider padding={6}>
+          <VStack gap={2}>
+            <Heading level={1}>어떤 문서를 작성할까요?</Heading>
+            <Text type="body" color="secondary">
+              질문에 답하면 비용과 문안을 계산한 초안을 만들어 드립니다.
+            </Text>
+          </VStack>
+        </LayoutHeader>
+      }
+      content={
+        <LayoutContent padding={6}>
+          <VStack gap={6}>
+            <Disclaimer />
+            <Grid columns={{ minWidth: 320 }} gap={4}>
+              {catalog.map((item) => (
+                <ClickableCard key={item.id} label={`${item.title} 작성 시작`} data-doc={item.id} onClick={() => onStart(item)}>
+                  <VStack gap={3}>
+                    <VStack gap={1}>
+                      <Text type="supporting">{item.category}</Text>
+                      <Heading level={2}>{item.title}</Heading>
+                    </VStack>
+                    <Text type="label" color="accent">
+                      작성 시작
+                    </Text>
+                  </VStack>
+                </ClickableCard>
               ))}
-            </div>
-          </section>
-        )}
-
-        {screen.kind === "filling" && (
-          <FormScreen
-            filling={screen.filling}
-            onChange={(filling) => setScreen({ kind: "filling", filling })}
-            onNext={() => next(screen.filling).catch(report)}
-          />
-        )}
-
-        {screen.kind === "editing" && (
-          <EditorScreen
-            title={screen.filling.doc.title}
-            draft={screen.draft}
-            onBack={() => setScreen({ kind: "filling", filling: screen.filling })}
-          />
-        )}
-      </main>
-    </div>
+            </Grid>
+          </VStack>
+        </LayoutContent>
+      }
+    />
   );
 }

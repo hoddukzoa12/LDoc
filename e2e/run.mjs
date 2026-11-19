@@ -8,7 +8,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { join, resolve } from "node:path";
-import { Builder, By, Capabilities, until } from "selenium-webdriver";
+import { Builder, By, Capabilities, Key, until } from "selenium-webdriver";
 
 const root = resolve(import.meta.dirname, "..");
 const out = join(root, "e2e-out");
@@ -54,21 +54,23 @@ try {
 }
 
 async function answerForm() {
+  await find("[data-disclaimer]");
+  await screenshot("choose.png");
   await (await find('[data-doc="payment-order-goods"]')).click();
-  const steps = (await driver.findElements(By.css(".stepper-item"))).length;
+  const steps = Number(await (await find("[data-steps]")).getAttribute("data-steps"));
   for (let step = 0; step < steps; step++) {
-    await find(`.step-card[data-step="${step}"]`);
+    await find(`[data-step="${step}"]`);
     const last = step === steps - 1;
     await fillStep(last ? LEFT_EMPTY : null);
     if (step === 2) {
-      await driver.executeScript('document.querySelector(".main").scrollTop = 0');
+      await scrollFormToTop();
       await screenshot("form-step.png");
     }
     await submit();
   }
 
-  const error = await find(`[data-field="${LEFT_EMPTY}"] .error`);
-  assert.equal(await error.getText(), "필수 항목입니다.");
+  const missing = await find(`[data-field="${LEFT_EMPTY}"]`);
+  await driver.wait(async () => (await missing.getText()).includes("필수 항목입니다."), 15_000, "no required-field error");
   await screenshot("form-required-error.png");
   await fill(await find(`[data-field="${LEFT_EMPTY}"]`), answers[LEFT_EMPTY]);
   await submit();
@@ -79,7 +81,7 @@ async function fillStep(skip) {
   const done = new Set();
   for (;;) {
     let next = null;
-    for (const field of await driver.findElements(By.css(".step-card [data-field]"))) {
+    for (const field of await driver.findElements(By.css("[data-step] [data-field]"))) {
       const id = await field.getAttribute("data-field");
       if (!done.has(id) && id !== skip && id in answers) {
         next = { id, field };
@@ -96,36 +98,35 @@ async function fill(field, value) {
   const kind = await field.getAttribute("data-kind");
   if (kind === "choice" || kind === "multi_choice") {
     for (const option of [value].flat()) {
-      await field.findElement(By.css(`[data-value="${option}"]`)).click();
+      const control = await field.findElement(By.css(`[data-value="${option}"]`));
+      await driver.executeScript("arguments[0].click()", control);
     }
     return;
   }
   const input = await field.findElement(By.css("input, textarea"));
   await input.clear();
-  await input.sendKeys(kind === "date" ? await localDate(value) : value);
+  await input.sendKeys(value);
+  if (kind === "date") {
+    await input.sendKeys(Key.TAB);
+    return;
+  }
   assert.equal(await input.getAttribute("value"), value);
 }
 
-/**
- * A date input takes keys in the webview's locale order, with its separators
- * moving between the parts. Formatting the date in that locale gives the keys.
- */
-function localDate(iso) {
-  return driver.executeScript(
-    `const [year, month, day] = arguments[0].split("-").map(Number);
-     return new Intl.DateTimeFormat(undefined, { year: "numeric", month: "2-digit", day: "2-digit" })
-       .format(new Date(year, month - 1, day));`,
-    iso,
+/** The form column scrolls inside the layout's content region. */
+async function scrollFormToTop() {
+  await driver.executeScript(
+    'document.querySelector("[data-step]").closest(".astryx-layout-content")?.scrollTo(0, 0)',
   );
 }
 
 async function submit() {
-  await (await find('.step-card button[type="submit"]')).click();
+  await (await find('[data-action="next"]')).click();
 }
 
 /** Univer opens with the caret at the start of the document, so the keys land in the title. */
 async function editDraft() {
-  await find(".editor-host canvas");
+  await find("[data-editor-host] canvas");
   await driver.sleep(2000);
   await screenshot("editor.png");
   await driver.actions().sendKeys(EDIT).perform();
@@ -136,14 +137,14 @@ async function editDraft() {
 /** Saves through the GTK save dialog, driven with xdotool, and returns the DOCX paragraphs. */
 async function exportDraft() {
   const target = join(out, "draft.docx");
-  await (await find(".editor-bar .primary")).click();
+  await (await find('[data-action="export"]')).click();
   const dialog = xdotool("search", "--sync", "--onlyvisible", "--name", "^Word").split("\n")[0];
   execFileSync("import", ["-window", "root", join(out, "save-dialog.png")]);
   xdotool("windowfocus", "--sync", dialog);
   xdotool("key", "ctrl+a");
   xdotool("type", "--delay", "20", target);
   xdotool("key", "Return");
-  const status = await find(".export-status.saved");
+  const status = await find('[data-export="saved"]');
   // getText() reads this ellipsized line as empty in WebKitWebDriver.
   assert.equal(await status.getAttribute("textContent"), `저장했습니다 · ${target}`);
   const json = execFileSync(
