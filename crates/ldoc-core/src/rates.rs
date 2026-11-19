@@ -19,8 +19,9 @@ impl<T: Copy> Dated<T> {
 }
 
 /// One round of service of process. The court sets it by notice, but these
-/// rows come from a law firm's published fee table, not from the court
-/// notice itself; check them against the notice before relying on them.
+/// rows come from the fee table of 신우법무사 published on korea.legal, a
+/// legal office's site, not from the court notice itself; check them
+/// against the notice before relying on them.
 pub const SERVICE_UNIT: Dated<Won> = Dated(&[
     (date(2020, 7, 1), Won::new(5_100)),
     (date(2021, 9, 1), Won::new(5_200)),

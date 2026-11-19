@@ -232,7 +232,7 @@ export function AssistPanel({
               <Text type="supporting" color="secondary">
                 {phase.kind === "remasking"
                   ? "가린 글을 다시 만드는 중입니다. 새 글이 보이면 승인할 수 있습니다."
-                  : "승인하면 위의 가린 글과 빈 칸의 이름만 보냅니다."}
+                  : "승인하면 위의 가린 글과 빈 칸의 이름을 보냅니다."}
               </Text>
               <HStack gap={2}>
                 <Button
@@ -312,8 +312,8 @@ export function AssistPanel({
                   <VStack gap={1}>
                     <Text type="label">보낸 내용</Text>
                     <Text type="supporting" color="secondary">
-                      받는 곳: {RECIPIENTS[sent.to] ?? sent.to}. 담긴 것은 아래 두 가지뿐입니다.
-                      {status?.mode === "replay" && " 이 빌드는 녹화된 응답을 재생하므로 실제로는 보내지 않았습니다."}
+                      받는 곳: {RECIPIENTS[sent.to] ?? sent.to}. 이 빌드가 기록한 요청에는 아래 두 가지만 담겼습니다.
+                      {status?.mode === "replay" && " 녹화된 응답을 재생하는 빌드라 실제로는 보내지 않았습니다."}
                     </Text>
                   </VStack>
                   <VStack gap={2}>
