@@ -4,8 +4,10 @@
 use crate::assist::{MaskCategory, Personal, Sensitivity};
 use crate::money::Won;
 use jiff::civil::Date;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::sync::LazyLock;
 use ts_rs::TS;
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -291,6 +293,15 @@ impl<'a> Reader<'a> {
     }
 }
 
+/// `2026. 3. 31.` with the last point optional, or `2026년 3월 31일`. Each
+/// form keeps its own marks in their order.
+static WRITTEN_DATE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"^(?:([1-9]\d{3})\s*\.\s*(\d{1,2})\s*\.\s*(\d{1,2})\s*\.?|([1-9]\d{3})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일)$",
+    )
+    .expect("a valid pattern")
+});
+
 /// Reads a calendar date written as `2026-03-31`, `2026. 3. 31.` or
 /// `2026년 3월 31일`. A date without a year is not read.
 pub fn parse_date(text: &str) -> Option<Date> {
@@ -298,23 +309,16 @@ pub fn parse_date(text: &str) -> Option<Date> {
     if let Ok(day) = text.parse() {
         return Some(day);
     }
-    let parts: Vec<&str> = text
-        .split(['.', '년', '월', '일'])
-        .map(str::trim)
-        .filter(|part| !part.is_empty())
-        .collect();
-    let [year, month, day] = parts.as_slice() else {
+    let parts = WRITTEN_DATE.captures(text)?;
+    let numbers: Vec<i16> = parts
+        .iter()
+        .skip(1)
+        .flatten()
+        .map(|part| part.as_str().parse().ok())
+        .collect::<Option<_>>()?;
+    let [year, month, day] = numbers[..] else {
         return None;
     };
-    let number = |part: &str| -> Option<i16> {
-        part.bytes()
-            .all(|b| b.is_ascii_digit())
-            .then(|| part.parse().ok())?
-    };
-    let (year, month, day) = (number(year)?, number(month)?, number(day)?);
-    if year < 1000 {
-        return None;
-    }
     Date::new(year, i8::try_from(month).ok()?, i8::try_from(day).ok()?).ok()
 }
 
@@ -345,16 +349,21 @@ mod tests {
 
     #[test]
     fn does_not_guess_a_date() {
-        for text in [
+        let read: Vec<(&str, Date)> = [
             "3월 31일",
             "3월 말",
             "2026. 2. 30.",
             "26. 3. 31.",
             "2026-3",
             "2026년 3월 31일까지",
-        ] {
-            assert_eq!(parse_date(text), None, "{text:?}");
-        }
+            "2026일 3월 1년",
+            "2026..3..1",
+            "2026. 3월 1일",
+        ]
+        .into_iter()
+        .filter_map(|text| Some((text, parse_date(text)?)))
+        .collect();
+        assert!(read.is_empty(), "{read:?}");
     }
 
     #[test]

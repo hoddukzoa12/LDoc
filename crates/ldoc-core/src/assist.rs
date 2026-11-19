@@ -436,7 +436,8 @@ pub enum Rejection {
     NotAChoice,
     QuoteNotInText,
     QuoteAmbiguous,
-    /// The source is cut from a longer figure, or is an amount without 원.
+    /// The source is cut from a longer figure, or is an amount without 원,
+    /// with a minus sign, or per unit.
     NotWholeValue,
     ValueUnreadable,
 }
@@ -543,24 +544,50 @@ fn read(
 }
 
 /// A figure that goes on before the source: a digit, a comma or point right
-/// after a digit, or a digit and 만, 억 or 조 (`1억 2,000원`).
-static FIGURE_BEFORE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?:\d[,.]?|\d\s*[만억조]\s*)$").expect("a valid pattern"));
+/// after a digit, or a numeral in digits or in Korean and a unit of ten or
+/// more (`1억 2,000원`, `일억 2,000원`, `1천 500원`).
+static FIGURE_BEFORE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:\d[,.]?|[\d일이삼사오육칠팔구십백천]\s*[십백천만억조]\s*)$")
+        .expect("a valid pattern")
+});
 
 /// A figure that goes on after the source: a digit, or a comma or point
 /// and a digit.
 static FIGURE_AFTER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[,.]?\d").expect("a valid pattern"));
 
-/// The rule for every value the core reads out of text: the source is the
+/// A minus sign before an amount, or a unit it is counted per: `-3,000,000원`,
+/// `△3,000,000원`, `박스당 50,000원`.
+static NOT_A_SUM_BEFORE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?:[-−△▲]|당)\s*$").expect("a valid pattern"));
+
+/// A unit an amount is counted per: `50,000원/박스`.
+static NOT_A_SUM_AFTER: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\s*[/／]").expect("a valid pattern"));
+
+/// The rule for every figure the core reads out of text: the source is the
 /// whole value the text states. The text right before and after it does not
 /// go on with the same figure, so `7,000,000원` cut from `17,000,000원` or
 /// `2026. 3. 3` cut from `2026. 3. 31.` is refused. An amount names its
-/// unit, so a figure counted in 천원, 달러 or 박스 is never read as won.
+/// unit, so a figure counted in 천원, 달러 or 박스 is never read as won, and
+/// it is a plain sum: not negative, not a price per unit. A text field
+/// takes the quote as written, figures and all.
 /// Only an occurrence that keeps this rule counts as the quote's one place.
 fn states_whole_value(kind: &FieldKind, before: &str, source: &str, after: &str) -> bool {
-    let unit_named = !matches!(kind, FieldKind::Money) || source.trim_end().ends_with('원');
-    unit_named && !FIGURE_BEFORE.is_match(before) && !FIGURE_AFTER.is_match(after)
+    let whole_figure = !FIGURE_BEFORE.is_match(before) && !FIGURE_AFTER.is_match(after);
+    match kind {
+        FieldKind::Money => {
+            whole_figure
+                && source.trim_end().ends_with('원')
+                && !NOT_A_SUM_BEFORE.is_match(before)
+                && !NOT_A_SUM_AFTER.is_match(after)
+        }
+        FieldKind::Date => whole_figure,
+        FieldKind::Text
+        | FieldKind::LongText
+        | FieldKind::Choice { .. }
+        | FieldKind::MultiChoice { .. } => true,
+    }
 }
 
 fn options(kind: &FieldKind) -> Option<&[crate::form::ChoiceOption]> {
@@ -843,6 +870,12 @@ mod tests {
             ("미화 5,000달러", "total", "5,000"),
             ("냉동 수산물 200박스", "total", "200"),
             ("금 1억 2,000원", "total", "2,000원"),
+            ("금 일억 2,000원", "total", "2,000원"),
+            ("금 1천 500원", "total", "500원"),
+            ("할인 -3,000,000원", "total", "3,000,000원"),
+            ("할인 △3,000,000원", "total", "3,000,000원"),
+            ("단가 50,000원/박스", "total", "50,000원"),
+            ("박스당 50,000원", "total", "50,000원"),
             ("2024년 11월 30일", "due_on", "1월 30일"),
             ("2024년 11월 30일", "due_on", "2024년 11월 3"),
             ("대금을 2026. 3. 31.까지", "due_on", "2026. 3. 3"),
@@ -875,6 +908,18 @@ mod tests {
                 quote("7,000,000원")
             ),
             readable("total", "7,000,000", "7,000,000원")
+        );
+    }
+
+    #[test]
+    fn a_text_field_takes_the_quote_as_written() {
+        assert_eq!(
+            resolve_one(
+                "1.냉동 수산물 200박스",
+                "goods",
+                quote("냉동 수산물 200박스")
+            ),
+            readable("goods", "냉동 수산물 200박스", "냉동 수산물 200박스")
         );
     }
 
