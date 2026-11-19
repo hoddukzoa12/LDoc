@@ -30,7 +30,9 @@ const PANEL_WIDTH = 340;
  * hole 9). The export keeps each paragraph's text and alignment, and takes the
  * weight and size of the whole paragraph from its first character. Bold, size,
  * the format painter and clear formatting work on part of a paragraph, so the
- * file would differ from the screen; only alignment stays.
+ * file would differ from the screen; only alignment stays. Univer's options
+ * cannot turn off the formatting shortcuts or formatted paste, so the header
+ * says what the file keeps.
  */
 const DROPPED_ON_EXPORT = Object.fromEntries(
   [
@@ -58,9 +60,12 @@ const DROPPED_ON_EXPORT = Object.fromEntries(
   ].map((id) => [id, { hidden: true }]),
 );
 
+/** The open document: how to read it now, and what it held when it opened. */
+type Open = { read: () => IDocumentData; opened: string };
+
 export function EditorScreen({ title, draft, onBack }: { title: string; draft: Draft; onBack: () => void }) {
   const host = useRef<HTMLDivElement>(null);
-  const snapshot = useRef<(() => IDocumentData) | null>(null);
+  const editor = useRef<Open | null>(null);
   const [exported, setExported] = useState<Exported>({ kind: "none" });
   const [leaving, setLeaving] = useState(false);
 
@@ -71,26 +76,29 @@ export function EditorScreen({ title, draft, onBack }: { title: string; draft: D
       presets: [UniverDocsCorePreset({ container: host.current!, footer: false, menu: DROPPED_ON_EXPORT })],
     });
     const document = univerAPI.createDocument(toUniver(draft.document));
-    snapshot.current = () => document.save();
+    editor.current = { read: () => document.save(), opened: JSON.stringify(document.save()) };
     return () => {
-      snapshot.current = null;
+      editor.current = null;
       univer.dispose();
     };
   }, [draft]);
 
-  /** Going back makes a new draft, so edits made here would be lost. Ask first when there are any. */
+  /**
+   * Going back makes a new draft, so edits made here would be lost. Ask first
+   * when the document changed in any way, formatting the export drops included.
+   */
   function back() {
-    const read = snapshot.current;
-    const edited = read !== null && JSON.stringify(fromUniver(read())) !== JSON.stringify(draft.document);
+    const open = editor.current;
+    const edited = open !== null && JSON.stringify(open.read()) !== open.opened;
     if (edited) setLeaving(true);
     else onBack();
   }
 
   async function exportEdited() {
-    const read = snapshot.current;
-    if (!read) return;
+    const open = editor.current;
+    if (!open) return;
     try {
-      const document = fromUniver(read());
+      const document = fromUniver(open.read());
       const path = await save({
         title: "Word 파일로 저장",
         defaultPath: `${title}.docx`,
@@ -123,7 +131,8 @@ export function EditorScreen({ title, draft, onBack }: { title: string; draft: D
               }
               centerContent={
                 <Text type="supporting" color="secondary">
-                  초안을 직접 고칠 수 있습니다. 고친 그대로 Word 파일에 담깁니다.
+                  Word 파일에는 고친 글과 문단 정렬이 담깁니다. 단축키나 붙여넣기로 넣은 굵게, 기울임, 글꼴 같은 서식은
+                  담기지 않습니다.
                 </Text>
               }
               endContent={

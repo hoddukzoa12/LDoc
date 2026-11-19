@@ -19,6 +19,7 @@ import type { Draft } from "./bindings/Draft";
 import type { FieldError } from "./bindings/FieldError";
 import type { Form } from "./bindings/Form";
 import { AssistPanel, type Readable } from "./AssistPanel";
+import { waiting } from "./candidates";
 import { Disclaimer } from "./Disclaimer";
 import { EditorScreen } from "./EditorScreen";
 import { FormScreen } from "./FormScreen";
@@ -157,7 +158,15 @@ export function App() {
                   filling={screen.filling}
                   onCandidates={(candidates) =>
                     setScreen((current) =>
-                      current.kind === "filling" ? { kind: "filling", filling: { ...current.filling, candidates } } : current,
+                      current.kind === "filling"
+                        ? {
+                            kind: "filling",
+                            filling: {
+                              ...current.filling,
+                              candidates: waiting(current.filling.form, current.filling.answers, candidates),
+                            },
+                          }
+                        : current,
                     )
                   }
                 />

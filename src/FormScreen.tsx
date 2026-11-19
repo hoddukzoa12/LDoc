@@ -21,7 +21,7 @@ import type { Filling } from "./App";
 import type { Readable } from "./AssistPanel";
 import type { Answer } from "./bindings/Answer";
 import type { Field } from "./bindings/Field";
-import type { Answers } from "./ipc";
+import { accept, isShown, waiting } from "./candidates";
 
 /** The form column, as in the form-wizard-vertical template. */
 const MEASURE = 640;
@@ -29,15 +29,6 @@ const MEASURE = 640;
 const RAIL_WIDTH = 240;
 /** The assist panel, wide enough to read a pasted contract line by line before approving it. */
 const ASSIST_WIDTH = 400;
-
-/** The field is asked while the answer to its condition's field is, or includes, one of the values. */
-export function isShown(field: Field, answers: Answers): boolean {
-  const condition = field.show_when;
-  if (!condition) return true;
-  const answer = answers[condition.field] ?? [];
-  const given = typeof answer === "string" ? [answer] : answer;
-  return given.some((value) => condition.is_one_of.includes(value));
-}
 
 export function FormScreen({
   filling,
@@ -60,19 +51,25 @@ export function FormScreen({
   const last = step === form.steps.length - 1;
   const errorOf = (id: string) => errors.find((error) => error.field === id)?.message;
 
-  const answer = (id: string, value: Answer) =>
-    onChange({ ...filling, answers: { ...answers, [id]: value }, errors: errors.filter((error) => error.field !== id) });
-  const goTo = (index: number) => onChange({ ...filling, step: index });
-  const candidateFor = (id: string) => candidates.find((candidate) => candidate.field === id);
-  const without = (taken: Readable) => candidates.filter((candidate) => candidate !== taken);
-  const accept = (field: Field, taken: Readable) =>
+  const answer = (id: string, value: Answer) => {
+    const next = { ...answers, [id]: value };
     onChange({
       ...filling,
-      answers: { ...answers, [field.id]: merged(field, answers[field.id], taken.value) },
-      candidates: without(taken),
-      errors: errors.filter((error) => error.field !== field.id),
+      answers: next,
+      candidates: waiting(form, next, candidates),
+      errors: errors.filter((error) => error.field !== id),
     });
-  const dismiss = (taken: Readable) => onChange({ ...filling, candidates: without(taken) });
+  };
+  const goTo = (index: number) => onChange({ ...filling, step: index });
+  const candidatesFor = (id: string) => candidates.filter((candidate) => candidate.field === id);
+  const take = (taken: Readable) =>
+    onChange({
+      ...filling,
+      ...accept(form, answers, candidates, taken),
+      errors: errors.filter((error) => error.field !== taken.field),
+    });
+  const dismiss = (taken: Readable) =>
+    onChange({ ...filling, candidates: candidates.filter((candidate) => candidate !== taken) });
 
   return (
     <Layout
@@ -88,8 +85,9 @@ export function FormScreen({
           <Stepper activeStep={step} orientation="vertical" indicatorPosition="on-track" onStepClick={goTo} label="작성 단계">
             {form.steps.map((candidate, index) => {
               const invalid = candidate.fields.some((field) => errorOf(field.id) !== undefined);
-              const waiting = candidate.fields.filter(
-                (field) => isShown(field, answers) && candidateFor(field.id),
+              // Every candidate in the list waits, so the counts add up to the assist panel's.
+              const pending = candidates.filter((each) =>
+                candidate.fields.some((field) => field.id === each.field),
               ).length;
               return (
                 <Step
@@ -97,7 +95,7 @@ export function FormScreen({
                   step={index}
                   label={candidate.title}
                   description={
-                    invalid ? "확인이 필요한 항목이 있습니다." : waiting > 0 ? `후보 ${waiting}개` : undefined
+                    invalid ? "확인이 필요한 항목이 있습니다." : pending > 0 ? `후보 ${pending}개` : undefined
                   }
                   status={invalid ? "error" : undefined}
                   indicator={invalid ? <Icon icon="error" size="sm" /> : "number"}
@@ -136,27 +134,26 @@ export function FormScreen({
                   )}
 
                   <FormLayout defaultOptionality="required">
-                    {shown.map((field) => {
-                      const candidate = candidateFor(field.id);
-                      return (
-                        <VStack key={field.id} gap={2} data-field={field.id} data-kind={field.kind.type}>
-                          <FieldInput
+                    {shown.map((field) => (
+                      <VStack key={field.id} gap={2} data-field={field.id} data-kind={field.kind.type}>
+                        <FieldInput
+                          field={field}
+                          answer={answers[field.id]}
+                          error={errorOf(field.id)}
+                          onAnswer={(value) => answer(field.id, value)}
+                        />
+                        {/* A multi-choice field can have a candidate per choice. Notes hold no state, so the index keys them. */}
+                        {candidatesFor(field.id).map((candidate, index) => (
+                          <CandidateNote
+                            key={index}
                             field={field}
-                            answer={answers[field.id]}
-                            error={errorOf(field.id)}
-                            onAnswer={(value) => answer(field.id, value)}
+                            candidate={candidate}
+                            onAccept={() => take(candidate)}
+                            onDismiss={() => dismiss(candidate)}
                           />
-                          {candidate && (
-                            <CandidateNote
-                              field={field}
-                              candidate={candidate}
-                              onAccept={() => accept(field, candidate)}
-                              onDismiss={() => dismiss(candidate)}
-                            />
-                          )}
-                        </VStack>
-                      );
-                    })}
+                        ))}
+                      </VStack>
+                    ))}
                   </FormLayout>
                 </VStack>
               </Center>
@@ -177,12 +174,6 @@ export function FormScreen({
       }
     />
   );
-}
-
-/** A multi-choice candidate adds to what is already ticked; any other replaces the answer. */
-function merged(field: Field, current: Answer | undefined, value: Answer): Answer {
-  if (field.kind.type !== "multi_choice" || !Array.isArray(value) || !Array.isArray(current)) return value;
-  return field.kind.options.map((option) => option.value).filter((key) => current.includes(key) || value.includes(key));
 }
 
 /** What a candidate would answer, as the field shows it: choices by their label. */

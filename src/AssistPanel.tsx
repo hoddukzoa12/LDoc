@@ -255,18 +255,30 @@ export function AssistPanel({
 
       {phase.kind === "done" && (
         <VStack gap={4} data-assist="done">
-          <Banner
-            status="success"
-            title={`후보 ${phase.offered}개를 찾았습니다`}
-            description="후보가 있는 단계는 왼쪽 단계 목록에 개수로 표시했습니다. 선택에 따라 나타나는 칸의 후보는 그 칸이 보일 때 나옵니다. 받아들여야 답이 됩니다."
-          />
+          {filling.candidates.length > 0 ? (
+            <Banner
+              status="success"
+              title={`남은 후보 ${filling.candidates.length}개`}
+              description={`찾은 후보 ${phase.offered}개 중 아직 받아들이거나 버리지 않은 것입니다. 후보가 있는 단계는 왼쪽 단계 목록에 개수로 표시했습니다. 선택에 따라 나타나는 칸의 후보는 그 칸이 보일 때 나옵니다. 받아들여야 답이 됩니다.`}
+              data-assist="remaining"
+            />
+          ) : (
+            <Banner
+              status="success"
+              title="남은 후보가 없습니다"
+              description={`찾은 후보 ${phase.offered}개를 모두 정했습니다. 고른 답 때문에 보이지 않게 된 칸의 후보는 남기지 않습니다.`}
+              data-assist="remaining"
+            />
+          )}
           {phase.rejected.length > 0 && (
             <VStack gap={2}>
               <Text type="label">쓰지 않은 제안 {phase.rejected.length}개</Text>
               <List density="compact" hasDividers>
-                {phase.rejected.map((rejected) => (
+                {/* A field can have more than one rejected proposal, so the index keys them. */}
+                {phase.rejected.map((rejected, index) => (
                   <ListItem
-                    key={rejected.field}
+                    key={index}
+                    data-rejected={rejected.field}
                     label={labelOf(rejected.field)}
                     description={
                       <Text type="supporting" color="secondary">

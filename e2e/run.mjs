@@ -1,9 +1,13 @@
 // Drives the built app through tauri-driver. It pastes a contract into the
 // assistant, checks that automatic masking hid the identifiers, masks what is
 // still personal, approves, checks that none of the contract's personal
-// strings is in what would have left the device, and accepts the candidates. It answers the rest of the form with the example
-// answers, checks that an empty required field is reported, edits the draft,
-// exports it through the native save dialog, and reads the DOCX back.
+// strings is in what would have left the device, and accepts the candidates.
+// It answers the rest of the form with the example answers, checks that an
+// empty required field is reported, edits the draft, exports it through the
+// native save dialog, and reads the DOCX back. On the way it checks that a
+// text with no recording fails in words, that the statement's unreadable
+// total is listed as not used, and that a change of formatting alone asks
+// before leaving the editor.
 // Run under xvfb-run after `pnpm tauri build --no-bundle`.
 
 import assert from "node:assert/strict";
@@ -16,10 +20,13 @@ import { Builder, By, Capabilities, Key, until } from "selenium-webdriver";
 const root = resolve(import.meta.dirname, "..");
 const out = join(root, "e2e-out");
 const answers = JSON.parse(readFileSync(join(root, "crates/ldoc-core/examples/payment-order-goods.json"), "utf8"));
-/** The contract whose recorded reply the replay build returns. */
-const pasted = JSON.parse(readFileSync(join(root, "e2e/assist-fixtures.json"), "utf8")).find(
-  (fixture) => fixture.id === "contract",
-);
+const fixtures = JSON.parse(readFileSync(join(root, "e2e/assist-fixtures.json"), "utf8"));
+/** The contract whose recorded reply fills the form. */
+const pasted = fixtures.find((fixture) => fixture.id === "contract");
+/** The statement, whose recorded total 1,000만 원 the core cannot read. */
+const statement = fixtures.find((fixture) => fixture.id === "statement");
+/** A text no recording answers. */
+const UNRECORDED = "처음 보는 글입니다.\n대금은 1,000,000원입니다.";
 
 /** The claim sentence `cargo run -p ldoc-core --example draft` prints for the example answers. */
 const CLAIM =
@@ -87,6 +94,8 @@ async function answerForm() {
   }
   assert.ok(accepted.size >= 10, `only ${accepted.size} candidates were accepted`);
   assert.ok(accepted.has("supplied_on"), "the supply date candidate did not appear once 거래 형태 was chosen");
+  const remaining = await (await find('[data-assist="remaining"]')).getAttribute("textContent");
+  assert.ok(remaining.includes("남은 후보가 없습니다"), `with every candidate decided the banner reads ${remaining}`);
 
   const missing = await find(`[data-field="${LEFT_EMPTY}"]`);
   await driver.wait(async () => (await missing.getText()).includes("필수 항목입니다."), 15_000, "no required-field error");
@@ -103,12 +112,31 @@ async function answerForm() {
  */
 async function fillFromPaste() {
   await find('[data-assist="replay"]');
-  // WebKitWebDriver drops a typed "\n", so each line break is an Enter press.
-  const lines = pasted.pasted.split("\n");
-  await (await find('[data-assist="paste"] textarea')).sendKeys(
-    ...lines.flatMap((line, index) => (index === 0 ? [line] : [Key.ENTER, line])),
+
+  await paste(UNRECORDED);
+  await (await find('[data-action="approve"]')).click();
+  const failed = await find('[data-assist="failed"]');
+  await driver.wait(
+    async () => (await failed.getAttribute("textContent")).includes("녹화된 응답이 없습니다"),
+    15_000,
+    "a text with no recording did not say so",
   );
-  await (await find('[data-action="preview"]')).click();
+  await screenshot("assist-no-recording.png");
+  await (await find(By.xpath('//button[normalize-space()="다시 붙여 넣기"]'))).click();
+
+  await paste(statement.pasted);
+  await (await find('[data-action="approve"]')).click();
+  const total = await find('[data-assist="done"] [data-rejected="total"]');
+  const reason = await total.getAttribute("textContent");
+  assert.ok(
+    reason.includes("대금 총액") && reason.includes("값으로 읽지 못해서"),
+    `the unreadable total is shown as ${reason}`,
+  );
+  await driver.executeScript('arguments[0].scrollIntoView({ block: "center" })', total);
+  await screenshot("assist-rejected.png");
+  await (await find(By.xpath('//button[normalize-space()="새 글 붙여 넣기"]'))).click();
+
+  await paste(pasted.pasted);
   const shown = async () => (await find("[data-masked]")).getAttribute("textContent");
   const automatic = await shown();
   for (const identifier of pasted.identifiers) {
@@ -124,6 +152,8 @@ async function fillFromPaste() {
     "a one-letter word was not refused with a reason",
   );
   assert.equal((await driver.findElements(By.css('[data-masked-word="김"]'))).length, 0, "김 is listed as masked");
+  // The status message fades in.
+  await driver.sleep(500);
   await screenshot("assist-word-refused.png");
   await input.sendKeys(Key.BACK_SPACE);
 
@@ -173,6 +203,18 @@ async function fillFromPaste() {
   }
   await (await find('[data-action="hide-sent"]')).click();
   await find('[data-action="show-sent"]');
+}
+
+/** Types the text into the empty paste box and asks for the masked preview. */
+async function paste(text) {
+  const box = await find('[data-assist="paste"] textarea');
+  await box.clear();
+  // WebKitWebDriver drops a typed "\n", so each line break is an Enter press.
+  const lines = text.split("\n");
+  await box.sendKeys(...lines.flatMap((line, index) => (index === 0 ? [line] : [Key.ENTER, line])));
+  assert.equal(await box.getAttribute("value"), text, "the paste box holds something else");
+  await (await find('[data-action="preview"]')).click();
+  await find('[data-assist="preview"]');
 }
 
 /**
@@ -262,22 +304,49 @@ async function submit() {
 }
 
 /**
- * Leaves an unedited draft without being asked, comes back, then types into
- * it. Univer opens with the caret at the start of the document, so the keys
- * land in the title.
+ * Leaves an unedited draft without being asked and comes back. Italicises
+ * one letter, which the export drops, and is asked before leaving; discarding
+ * returns to the form. Comes back once more and types into the draft. Univer
+ * opens with the caret at the start of the document, so the keys land in the
+ * title.
  */
 async function editDraft() {
-  await find("[data-editor-host] canvas");
-  await driver.sleep(2000);
+  await openDraft();
   await (await find('[data-action="back"]')).click();
   await find("[data-step]");
   await submit();
-  await find("[data-editor-host] canvas");
-  await driver.sleep(2000);
+  await openDraft();
   await screenshot("editor.png");
+
+  await driver
+    .actions()
+    .sendKeys(Key.ARROW_RIGHT)
+    .keyDown(Key.SHIFT)
+    .sendKeys(Key.ARROW_RIGHT)
+    .keyUp(Key.SHIFT)
+    .keyDown(Key.CONTROL)
+    .sendKeys("i")
+    .keyUp(Key.CONTROL)
+    .perform();
+  await driver.sleep(500);
+  await (await find('[data-action="back"]')).click();
+  await find('[role="alertdialog"]');
+  // The dialog fades in.
+  await driver.sleep(500);
+  await screenshot("editor-leave-formatting.png");
+  await (await find(By.xpath('//button[normalize-space()="고친 내용 버리고 답변 수정"]'))).click();
+  await find("[data-step]");
+  await submit();
+
+  await openDraft();
   await driver.actions().sendKeys(EDIT).perform();
   await driver.sleep(500);
   await screenshot("editor-edited.png");
+}
+
+async function openDraft() {
+  await find("[data-editor-host] canvas");
+  await driver.sleep(2000);
 }
 
 /** Going back from an edited draft asks first; keeping the edits stays in the editor. */
@@ -306,6 +375,8 @@ async function exportDraft() {
   const target = join(out, "draft.docx");
   await (await find('[data-action="export"]')).click();
   const dialog = xdotool("search", "--sync", "--onlyvisible", "--name", "^Word").split("\n")[0];
+  // The export button draws its progress indicator after a short delay.
+  await driver.sleep(1000);
   execFileSync("import", ["-window", "root", join(out, "save-dialog.png")]);
   xdotool("windowfocus", "--sync", dialog);
   xdotool("key", "ctrl+a");
