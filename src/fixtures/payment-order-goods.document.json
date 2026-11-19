@@ -1,0 +1,286 @@
+{
+  "blocks": [
+    {
+      "text": "지 급 명 령 신 청 서",
+      "align": "center",
+      "bold": true,
+      "size_pt": 18
+    },
+    {
+      "text": "",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "채 권 자  주식회사 가나푸드 (대표이사 김가나)",
+      "align": "left",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "          법인등록번호 110111-0000001",
+      "align": "left",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "          서울특별시 서초구 서초대로 1",
+      "align": "left",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "          02-000-0000",
+      "align": "left",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "채 무 자  주식회사 한빛마트 (대표이사 박한빛)",
+      "align": "left",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "          서울특별시 강남구 테헤란로 2",
+      "align": "left",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "물품대금 청구의 독촉사건",
+      "align": "left",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "청 구 취 지",
+      "align": "center",
+      "bold": true,
+      "size_pt": 14
+    },
+    {
+      "text": "",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "채무자는 채권자에게 금 7,000,000원 (칠백만 원) 및 이에 대하여 2026. 4. 1.부터 이 사건 지급명령 정본 송달일까지는 연 6%의, 그 다음 날부터 다 갚는 날까지는 연 12%의 각 비율로 계산한 돈을 지급하라.",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "라는 지급명령을 구합니다.",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "청 구 원 인",
+      "align": "center",
+      "bold": true,
+      "size_pt": 14
+    },
+    {
+      "text": "",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "1. 채권자는 식자재 도매업을 영위하는 법인이고, 채무자는 식품 소매업을 영위하는 법인입니다.",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "2. 채권자는 2026. 3. 2.에 채무자에게 냉동 수산물 200박스를 대금 금 10,000,000원 (일천만 원)(부가가치세 포함)에 공급하였고, 채무자는 같은 날 이를 이의 없이 인수하였습니다.",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "3. 위 대금의 지급기일은 2026. 3. 31.로 약정되었으나, 채무자는 위 대금 중 금 3,000,000원 (삼백만 원)만 지급하였을 뿐 잔액 금 7,000,000원 (칠백만 원)을 현재까지 지급하지 아니하고 있습니다.",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "4. 채권자는 2026. 5. 11. 내용증명으로 지급을 최고하였으나(갑 제3호증), 채무자는 이에 응하지 아니하였습니다.",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "5. 이에 채권자는 청구취지 기재와 같은 지급명령을 구하기에 이르렀습니다.",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "입 증 방 법",
+      "align": "center",
+      "bold": true,
+      "size_pt": 14
+    },
+    {
+      "text": "",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "1. 갑 제1호증  거래명세서",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "2. 갑 제2호증  세금계산서",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "3. 갑 제3호증  내용증명 및 배달증명",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "첨 부 서 류",
+      "align": "center",
+      "bold": true,
+      "size_pt": 14
+    },
+    {
+      "text": "",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "1. 위 입증방법 각 1통",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "2. 법인등기사항전부증명서 1통",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "3. 송달료 납부서 1통",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "2026. 11. 19.",
+      "align": "right",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "위 채권자 주식회사 가나푸드 대표이사 김가나 (서명 또는 인)",
+      "align": "right",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "",
+      "align": "justify",
+      "bold": false,
+      "size_pt": 12
+    },
+    {
+      "text": "서울중앙지방법원 귀중",
+      "align": "left",
+      "bold": true,
+      "size_pt": 14
+    }
+  ]
+}

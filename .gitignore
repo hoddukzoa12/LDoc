@@ -1,0 +1,7 @@
+target/
+node_modules/
+dist/
+e2e-out/
+.DS_Store
+src-tauri/gen/
+.audit/
