@@ -85,6 +85,7 @@ async function answerForm() {
     await submit();
   }
   assert.ok(accepted.size >= 10, `only ${accepted.size} candidates were accepted`);
+  assert.ok(accepted.has("supplied_on"), "the supply date candidate did not appear once 거래 형태 was chosen");
 
   const missing = await find(`[data-field="${LEFT_EMPTY}"]`);
   await driver.wait(async () => (await missing.getText()).includes("필수 항목입니다."), 15_000, "no required-field error");
@@ -122,6 +123,9 @@ async function fillFromPaste() {
   assert.ok(sent.includes("⟦") && sent.includes("물품공급계약서"), "the sent body is not the masked contract");
   for (const personal of pasted.pii) {
     assert.ok(!sent.includes(personal), `${personal} is in what left the device`);
+  }
+  for (const field of JSON.parse(sent).fields.filter((field) => field.sensitivity === "pii")) {
+    assert.equal(field.help, null, `the help text of ${field.id} left the device`);
   }
 }
 

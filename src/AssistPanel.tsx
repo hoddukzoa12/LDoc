@@ -36,6 +36,7 @@ const REJECTIONS: Record<Rejection, string> = {
   not_a_choice: "선택지에 없는 값이라 쓰지 않았습니다.",
   quote_not_in_text: "보낸 글에 없는 부분을 가리켜서 쓰지 않았습니다.",
   quote_ambiguous: "가리킨 부분이 글에 여러 번 나와서 쓰지 않았습니다.",
+  not_whole_value: "가리킨 부분이 더 긴 숫자의 일부이거나 원 단위 금액이 아니라서 쓰지 않았습니다.",
   value_unreadable: "가리킨 부분을 값으로 읽지 못해서 쓰지 않았습니다.",
 };
 

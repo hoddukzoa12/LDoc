@@ -3,6 +3,7 @@ import type { FieldKind } from "./FieldKind";
 import type { Sensitivity } from "./Sensitivity";
 
 /**
- * A field as a model may see it: what is asked, never an answer.
+ * A field as a model may see it: what is asked, never an answer. A
+ * personal field goes out as its label alone, without its help.
  */
 export type FieldSpec = { id: string, label: string, help: string | null, kind: FieldKind, sensitivity: Sensitivity, };

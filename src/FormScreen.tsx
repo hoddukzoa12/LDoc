@@ -85,7 +85,9 @@ export function FormScreen({
           <Stepper activeStep={step} orientation="vertical" onStepClick={goTo} label="작성 단계">
             {form.steps.map((candidate, index) => {
               const invalid = candidate.fields.some((field) => errorOf(field.id) !== undefined);
-              const waiting = candidate.fields.filter((field) => candidateFor(field.id)).length;
+              const waiting = candidate.fields.filter(
+                (field) => isShown(field, answers) && candidateFor(field.id),
+              ).length;
               return (
                 <Step
                   key={candidate.title}

@@ -1,6 +1,6 @@
 {
   "anchor": "물품공급계약서",
-  "note": "the model reads the parties, the goods, the price and the due date; it also points at the supply date, which the form does not ask yet",
+  "note": "the model reads the parties, the goods, the price and the due date; it also points at the supply date, which the form asks once 거래 형태 is 1회성 공급",
   "result": {
     "id": "recorded",
     "ok": true,

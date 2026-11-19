@@ -348,7 +348,8 @@ fn refine(category: MaskCategory, value: &str) -> MaskCategory {
     }
 }
 
-/// A field as a model may see it: what is asked, never an answer.
+/// A field as a model may see it: what is asked, never an answer. A
+/// personal field goes out as its label alone, without its help.
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export)]
 pub struct FieldSpec {
@@ -361,28 +362,48 @@ pub struct FieldSpec {
 
 impl From<&Field> for FieldSpec {
     fn from(field: &Field) -> FieldSpec {
+        let sensitivity = field.pii.sensitivity();
         FieldSpec {
             id: field.id.clone(),
             label: field.label.clone(),
-            help: field.help.clone(),
+            help: field
+                .help
+                .clone()
+                .filter(|_| sensitivity == Sensitivity::Public),
             kind: field.kind.clone(),
-            sensitivity: field.pii.sensitivity(),
+            sensitivity,
         }
     }
 }
 
-/// The fields the form shows now that have no answer yet.
+/// The fields with no answer yet that the form shows now, or hides only
+/// behind a choice it shows now and the person has not made. One paste can
+/// then answer 공급일 before 거래 형태 is chosen; its candidate waits until
+/// the choice shows the field. A field the person's choice hides is not
+/// offered.
 pub fn open_fields(form: &Form, answers: &Answers) -> Vec<FieldSpec> {
     let answered = |id: &str| match answers.get(id) {
         Some(Answer::One(text)) => !text.trim().is_empty(),
         Some(Answer::Many(values)) => !values.is_empty(),
         None => false,
     };
-    form.steps
+    let fields: Vec<&Field> = form.steps.iter().flat_map(|step| &step.fields).collect();
+    let shown = |id: &str| {
+        fields
+            .iter()
+            .any(|field| field.id == id && field.is_shown(answers))
+    };
+    let may_be_asked = |field: &Field| {
+        field.is_shown(answers)
+            || field
+                .show_when
+                .as_ref()
+                .is_some_and(|condition| !answered(&condition.field) && shown(&condition.field))
+    };
+    fields
         .iter()
-        .flat_map(|step| &step.fields)
-        .filter(|field| field.is_shown(answers) && !answered(&field.id))
-        .map(FieldSpec::from)
+        .filter(|field| may_be_asked(field) && !answered(&field.id))
+        .map(|field| FieldSpec::from(*field))
         .collect()
 }
 
@@ -393,7 +414,8 @@ pub fn open_fields(form: &Form, answers: &Answers) -> Vec<FieldSpec> {
 pub enum Pointer {
     /// One of the field's choices.
     Option { value: String },
-    /// Part of the approved masked text, occurring there exactly once.
+    /// Part of the approved masked text that states a whole value there
+    /// exactly once. See `states_whole_value`.
     Quote { text: String },
     /// A masked name or number itself.
     Placeholder { token: String },
@@ -414,6 +436,8 @@ pub enum Rejection {
     NotAChoice,
     QuoteNotInText,
     QuoteAmbiguous,
+    /// The source is cut from a longer figure, or is an amount without 원.
+    NotWholeValue,
     ValueUnreadable,
 }
 
@@ -480,22 +504,64 @@ fn read(
             ));
         }
         Pointer::Quote { text } => {
-            match masked.text.matches(text.as_str()).count() {
-                _ if text.trim().is_empty() => return Err(Rejection::QuoteNotInText),
-                0 => return Err(Rejection::QuoteNotInText),
-                1 => {}
+            if text.trim().is_empty() {
+                return Err(Rejection::QuoteNotInText);
+            }
+            let places: Vec<usize> = masked
+                .text
+                .match_indices(text.as_str())
+                .map(|(start, _)| start)
+                .collect();
+            let whole = places
+                .iter()
+                .filter(|&&start| {
+                    let (before, after) =
+                        (&masked.text[..start], &masked.text[start + text.len()..]);
+                    states_whole_value(&spec.kind, before, text, after)
+                })
+                .count();
+            match (places.len(), whole) {
+                (0, _) => return Err(Rejection::QuoteNotInText),
+                (_, 0) => return Err(Rejection::NotWholeValue),
+                (_, 1) => {}
                 _ => return Err(Rejection::QuoteAmbiguous),
             }
             masked.restore(text)
         }
-        Pointer::Placeholder { token } => masked
-            .originals
-            .get(token)
-            .cloned()
-            .ok_or(Rejection::QuoteNotInText)?,
+        Pointer::Placeholder { token } => {
+            let original = masked
+                .originals
+                .get(token)
+                .ok_or(Rejection::QuoteNotInText)?;
+            if !states_whole_value(&spec.kind, "", original, "") {
+                return Err(Rejection::NotWholeValue);
+            }
+            original.clone()
+        }
     };
     let value = value_of(&spec.kind, &source).ok_or(Rejection::ValueUnreadable)?;
     Ok((value, source))
+}
+
+/// A figure that goes on before the source: a digit, a comma or point right
+/// after a digit, or a digit and 만, 억 or 조 (`1억 2,000원`).
+static FIGURE_BEFORE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?:\d[,.]?|\d\s*[만억조]\s*)$").expect("a valid pattern"));
+
+/// A figure that goes on after the source: a digit, or a comma or point
+/// and a digit.
+static FIGURE_AFTER: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[,.]?\d").expect("a valid pattern"));
+
+/// The rule for every value the core reads out of text: the source is the
+/// whole value the text states. The text right before and after it does not
+/// go on with the same figure, so `7,000,000원` cut from `17,000,000원` or
+/// `2026. 3. 3` cut from `2026. 3. 31.` is refused. An amount names its
+/// unit, so a figure counted in 천원, 달러 or 박스 is never read as won.
+/// Only an occurrence that keeps this rule counts as the quote's one place.
+fn states_whole_value(kind: &FieldKind, before: &str, source: &str, after: &str) -> bool {
+    let unit_named = !matches!(kind, FieldKind::Money) || source.trim_end().ends_with('원');
+    unit_named && !FIGURE_BEFORE.is_match(before) && !FIGURE_AFTER.is_match(after)
 }
 
 fn options(kind: &FieldKind) -> Option<&[crate::form::ChoiceOption]> {
@@ -618,9 +684,11 @@ mod tests {
                 title: "거래".into(),
                 fields: vec![
                     Field::text("creditor_name", "채권자 이름").pii(MaskCategory::Person),
-                    Field::text("creditor_id", "번호").pii(MaskCategory::ResidentNo),
+                    Field::text("creditor_id", "번호")
+                        .pii(MaskCategory::ResidentNo)
+                        .help("법인은 법인등록번호"),
                     Field::text("goods", "품목"),
-                    Field::money("total", "대금 총액"),
+                    Field::money("total", "대금 총액").help("계약서의 총액"),
                     Field::date("due_on", "지급기일"),
                     vat,
                     Field::date("supplied_on", "공급일").show_when("vat", &["none"]),
@@ -705,7 +773,7 @@ mod tests {
     }
 
     #[test]
-    fn open_fields_are_the_shown_unanswered_ones_with_their_sensitivity() {
+    fn open_fields_are_the_unanswered_ones_shown_or_behind_a_choice_not_made() {
         let given = answers(&[("goods", "냉동 수산물"), ("total", " ")]);
         let open: Vec<(String, Sensitivity)> = open_fields(&form(), &given)
             .into_iter()
@@ -719,6 +787,7 @@ mod tests {
                 ("total".to_string(), Sensitivity::Public),
                 ("due_on".to_string(), Sensitivity::Public),
                 ("vat".to_string(), Sensitivity::Public),
+                ("supplied_on".to_string(), Sensitivity::Public),
             ]
         );
     }
@@ -762,6 +831,50 @@ mod tests {
         assert_eq!(
             resolve_one(text, "due_on", quote("2026. 3. 31.")),
             readable("due_on", "2026-03-31", "2026. 3. 31.")
+        );
+    }
+
+    #[test]
+    fn a_quote_cut_from_a_longer_value_is_not_read() {
+        let cases = [
+            ("총액은 17,000,000원입니다", "total", "7,000,000원"),
+            ("합계 1,250,000원 발행", "total", "250,000원"),
+            ("공급가액 5,000천원", "total", "5,000"),
+            ("미화 5,000달러", "total", "5,000"),
+            ("냉동 수산물 200박스", "total", "200"),
+            ("금 1억 2,000원", "total", "2,000원"),
+            ("2024년 11월 30일", "due_on", "1월 30일"),
+            ("2024년 11월 30일", "due_on", "2024년 11월 3"),
+            ("대금을 2026. 3. 31.까지", "due_on", "2026. 3. 3"),
+        ];
+        let wrong: Vec<String> = cases
+            .iter()
+            .filter_map(|(text, field, cut)| {
+                let got = resolve_one(text, field, quote(cut));
+                (got != rejected(field, Rejection::NotWholeValue))
+                    .then(|| format!("{cut:?} from {text:?} gave {got:?}"))
+            })
+            .collect();
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn a_quote_of_a_whole_value_is_read() {
+        assert_eq!(
+            resolve_one("총액은 17,000,000원입니다", "total", quote("17,000,000원")),
+            readable("total", "17,000,000", "17,000,000원")
+        );
+        assert_eq!(
+            resolve_one("대금을 2026. 3. 31.까지", "due_on", quote("2026. 3. 31.")),
+            readable("due_on", "2026-03-31", "2026. 3. 31.")
+        );
+        assert_eq!(
+            resolve_one(
+                "계약금 7,000,000원, 총액 17,000,000원",
+                "total",
+                quote("7,000,000원")
+            ),
+            readable("total", "7,000,000", "7,000,000원")
         );
     }
 
@@ -821,6 +934,17 @@ mod tests {
     }
 
     #[test]
+    fn a_masked_number_is_not_an_amount() {
+        let account = Pointer::Placeholder {
+            token: "⟦계좌번호1⟧".into(),
+        };
+        assert_eq!(
+            resolve_one("계좌 12345678901", "total", account),
+            rejected("total", Rejection::NotWholeValue)
+        );
+    }
+
+    #[test]
     fn a_quote_around_a_placeholder_is_shown_as_written() {
         assert_eq!(
             resolve_one("채권자 김가나의 냉동 수산물", "goods", quote("냉동 수산물")),
@@ -867,11 +991,41 @@ mod tests {
     }
 
     #[test]
-    fn a_field_not_offered_gets_nothing() {
+    fn a_field_hidden_behind_a_choice_not_made_yet_gets_its_candidate() {
         assert_eq!(
             resolve_one("공급일 2026-03-02", "supplied_on", quote("2026-03-02")),
-            rejected("supplied_on", Rejection::FieldNotOffered)
+            readable("supplied_on", "2026-03-02", "2026-03-02")
         );
+    }
+
+    #[test]
+    fn a_field_the_persons_choice_hides_gets_nothing() {
+        let given = answers(&[("vat", "included")]);
+        let masked = mask("공급일 2026-03-02", &form(), &given, &[]);
+        let proposed = [ProposedAnswer {
+            field: "supplied_on".into(),
+            pointer: quote("2026-03-02"),
+        }];
+        assert_eq!(
+            resolve(&masked, &open_fields(&form(), &given), &proposed),
+            [rejected("supplied_on", Rejection::FieldNotOffered)]
+        );
+    }
+
+    #[test]
+    fn a_personal_field_goes_out_as_its_label_without_its_help() {
+        let request = serde_json::to_value(open_fields(&form(), &Answers::new())).unwrap();
+        let help = |id: &str| {
+            request
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|spec| spec["id"] == id)
+                .unwrap()["help"]
+                .clone()
+        };
+        assert_eq!(help("creditor_id"), serde_json::Value::Null);
+        assert_eq!(help("total"), "계약서의 총액");
     }
 
     #[test]
