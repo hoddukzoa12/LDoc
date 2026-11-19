@@ -19,19 +19,29 @@ impl Won {
         self.0
     }
 
-    /// Reads what a person types into a money field: digits, with optional
-    /// thousands separators, spaces and a trailing "원".
+    /// The largest amount the core reads: 999조 9999억 9999만 9999원. Every
+    /// fee computed from an amount up to this fits in a `u64`.
+    pub const MAX: Won = Won(999_999_999_999_999);
+
+    /// Reads what a person types into a money field: digits, optionally
+    /// grouped in threes by commas, and an optional trailing "원". Spaces
+    /// inside the figure are not read, so `10 000 00` is refused rather
+    /// than guessed at.
     pub fn parse(input: &str) -> Option<Won> {
-        let digits: String = input
-            .trim()
-            .trim_end_matches('원')
-            .chars()
-            .filter(|c| !matches!(c, ',' | ' '))
-            .collect();
-        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        let input = input.trim();
+        let figure = input.strip_suffix('원').map_or(input, str::trim_end);
+        let digits = |part: &str| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit());
+        let mut groups = figure.split(',');
+        let head = groups.next()?;
+        let grouped = figure.contains(',');
+        if !digits(head)
+            || (grouped && head.len() > 3)
+            || !groups.all(|group| group.len() == 3 && digits(group))
+        {
             return None;
         }
-        digits.parse().ok().map(Won)
+        let amount: u64 = figure.replace(',', "").parse().ok()?;
+        (amount <= Self::MAX.0).then_some(Won(amount))
     }
 
     pub fn checked_sub(self, other: Won) -> Option<Won> {
@@ -100,7 +110,39 @@ mod tests {
 
     #[test]
     fn rejects_what_is_not_an_amount() {
-        for input in ["", "천만원", "-500", "1.5", "1e6"] {
+        for input in ["", "천만원", "-500", "1.5", "1e6", "500원원"] {
+            assert_eq!(Won::parse(input), None, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn reads_commas_only_as_groups_of_three() {
+        assert_eq!(Won::parse("1,000"), Some(Won::new(1_000)));
+        assert_eq!(Won::parse("12,345,678원"), Some(Won::new(12_345_678)));
+        for input in ["10,000,00", "1,0000", ",100", "100,", "1,,000", "1000,000"] {
+            assert_eq!(Won::parse(input), None, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn spaces_inside_an_amount_are_not_read() {
+        assert_eq!(Won::parse("5,500 원"), Some(Won::new(5_500)));
+        for input in ["10 000 00", "1 000", "1, 000", "1 ,000"] {
+            assert_eq!(Won::parse(input), None, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn amounts_stop_below_a_thousand_trillion() {
+        assert_eq!(
+            Won::parse("999,999,999,999,999"),
+            Some(Won::new(999_999_999_999_999))
+        );
+        for input in [
+            "1,000,000,000,000,000",
+            "1000000000000000",
+            "18446744073709551616",
+        ] {
             assert_eq!(Won::parse(input), None, "{input:?}");
         }
     }

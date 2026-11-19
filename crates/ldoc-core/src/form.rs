@@ -206,7 +206,10 @@ impl<'a> Reader<'a> {
         let text = self.one(field)?;
         let amount = Won::parse(text);
         if amount.is_none() {
-            self.fail(field, "금액은 숫자로 적어 주세요.");
+            self.fail(
+                field,
+                "금액은 숫자로 적어 주세요. 쉼표는 세 자리마다 찍습니다. 예: 7,000,000",
+            );
         }
         amount
     }

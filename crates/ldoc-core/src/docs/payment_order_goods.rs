@@ -175,7 +175,7 @@ fn form() -> Form {
                 "입증방법",
                 vec![
                     Field::multi_choice("evidence", "보유한 증거", EVIDENCE)
-                        .help("선택한 순서대로 갑 제1호증부터 번호가 붙습니다."),
+                        .help("고른 순서와 관계없이 이 목록 순서대로 갑 제1호증부터 번호가 붙습니다."),
                     Field::date("demand_sent_on", "내용증명 발송일").show_when("evidence", &["certified_mail"]),
                 ],
             ),
@@ -332,8 +332,12 @@ fn parse(answers: &Answers) -> Result<Request, Vec<FieldError>> {
     let goods = r.text("goods");
     let total = r.money("total");
     let paid = r.optional_money("paid").unwrap_or(Won::new(0));
-    let balance = match total.map(|total| total.checked_sub(paid)) {
-        Some(Some(balance)) if balance.amount() > 0 => Some(balance),
+    let balance = match total.map(|total| (total, total.checked_sub(paid))) {
+        Some((total, _)) if total.amount() == 0 => {
+            r.fail("total", "대금 총액은 0원보다 커야 합니다.");
+            None
+        }
+        Some((_, Some(balance))) if balance.amount() > 0 => Some(balance),
         Some(_) => {
             r.fail(
                 "paid",
@@ -356,6 +360,34 @@ fn parse(answers: &Answers) -> Result<Request, Vec<FieldError>> {
         Some(None)
     };
     let court = r.text("court");
+
+    // What happened before filing must be dated on or before the filing
+    // date, and the price must have fallen due before it.
+    if let Some(filed_on) = filed_on {
+        let (supply, field) = match &trade {
+            Some(Trade::OneTime { on }) => (Some(*on), "supplied_on"),
+            Some(Trade::Continuous { to, .. }) => (Some(*to), "trade_to"),
+            None => (None, ""),
+        };
+        let past = [
+            (field, supply),
+            ("demand_sent_on", demand_sent_on.flatten()),
+        ];
+        for (field, day) in past {
+            if day.is_some_and(|day| day > filed_on) {
+                r.fail(
+                    field,
+                    "신청일보다 늦은 날짜입니다. 신청일 이전의 날짜를 적어 주세요.",
+                );
+            }
+        }
+        if due_on.is_some_and(|due| due >= filed_on) {
+            r.fail(
+                "due_on",
+                "지급기일이 신청일 전이어야 합니다. 지급기일이 지나지 않은 대금은 지급명령으로 청구할 수 없습니다.",
+            );
+        }
+    }
 
     let request = (|| {
         Some(Request {
@@ -679,8 +711,11 @@ fn costs(request: &Request) -> Vec<CostLine> {
 }
 
 /// 민법 제163조 제6호: the price of goods sold by a producer or merchant
-/// lapses after three years.
+/// lapses after three years. A private individual's sale falls outside it.
 fn limitation_notice(request: &Request) -> Option<String> {
+    if !request.creditor.is_merchant() {
+        return None;
+    }
     let runs_from = request.due_on.unwrap_or(match request.trade {
         Trade::OneTime { on } => on,
         Trade::Continuous { from, .. } => from,
@@ -922,16 +957,84 @@ mod tests {
             .map(|line| (line.label.as_str(), line.amount.amount()))
             .collect();
         // Claim 7,000,000: complaint fee 35,000, a tenth is 3,500, nine
-        // tenths of that is 3,150, under-100 dropped. Service 2 × 5,500 × 6.
+        // tenths of that is 3,150, under-100 dropped. Service 2 × 5,640 × 6.
         assert_eq!(
             amounts,
-            [("인지대", 3_100), ("송달료", 66_000), ("합계", 69_100)]
+            [("인지대", 3_100), ("송달료", 67_680), ("합계", 70_780)]
         );
 
         let paper = draft_document(KIND.id, &corporate_case().with("filing", "paper"))
             .unwrap()
             .costs;
         assert_eq!(paper[0].amount.amount(), 3_500);
+    }
+
+    #[test]
+    fn service_is_charged_at_the_unit_in_force_on_the_filing_date() {
+        let service = |filed_on: &str| {
+            let case = corporate_case().with("filed_on", filed_on);
+            draft_document(KIND.id, &case).unwrap().costs[1]
+                .amount
+                .amount()
+        };
+        assert_eq!(service("2026-06-30"), 66_000);
+        assert_eq!(service("2026-07-01"), 67_680);
+    }
+
+    #[test]
+    fn dates_after_the_filing_date_are_refused_on_their_field() {
+        assert_eq!(
+            failed_fields(&corporate_case().with("supplied_on", "2026-11-20")),
+            ["supplied_on"]
+        );
+        let continuous = corporate_case()
+            .with("trade_type", "continuous")
+            .with("trade_from", "2025-09-01")
+            .with("trade_to", "2026-12-01");
+        assert_eq!(failed_fields(&continuous), ["trade_to"]);
+        assert_eq!(
+            failed_fields(&corporate_case().with("demand_sent_on", "2026-11-20")),
+            ["demand_sent_on"]
+        );
+    }
+
+    #[test]
+    fn a_due_date_must_come_before_the_filing_date() {
+        assert_eq!(
+            failed_fields(&corporate_case().with("due_on", "2026-11-19")),
+            ["due_on"]
+        );
+        assert_eq!(
+            failed_fields(&corporate_case().with("due_on", "2026-12-31")),
+            ["due_on"]
+        );
+        assert!(draft_document(KIND.id, &corporate_case().with("due_on", "2026-11-18")).is_ok());
+    }
+
+    #[test]
+    fn a_total_of_nothing_is_reported_on_the_total() {
+        assert_eq!(
+            failed_fields(&corporate_case().with("total", "0").without("paid")),
+            ["total"]
+        );
+        assert_eq!(
+            failed_fields(&corporate_case().with("total", "0")),
+            ["total"]
+        );
+    }
+
+    #[test]
+    fn the_evidence_help_says_exhibits_follow_the_list_order() {
+        let form = form_of(KIND.id).unwrap();
+        let evidence = form
+            .steps
+            .iter()
+            .flat_map(|step| &step.fields)
+            .find(|field| field.id == "evidence")
+            .unwrap();
+        let help = evidence.help.as_deref().unwrap();
+        assert!(!help.contains("선택한 순서"), "{help}");
+        assert!(help.contains("목록 순서대로"), "{help}");
     }
 
     #[test]
@@ -1000,10 +1103,13 @@ mod tests {
 
     #[test]
     fn a_filing_date_older_than_the_rate_tables_is_refused() {
-        assert_eq!(
-            failed_fields(&corporate_case().with("filed_on", "2020-01-01")),
-            ["filed_on"]
-        );
+        let early = corporate_case()
+            .with("filed_on", "2020-06-30")
+            .with("supplied_on", "2020-03-02")
+            .with("due_on", "2020-03-31")
+            .with("demand_sent_on", "2020-05-11");
+        assert_eq!(failed_fields(&early), ["filed_on"]);
+        assert!(draft_document(KIND.id, &early.with("filed_on", "2020-07-01")).is_ok());
     }
 
     #[test]
@@ -1031,6 +1137,23 @@ mod tests {
             past.contains("소멸시효 3년이 2026. 1. 31. 무렵 지났을 수 있습니다"),
             "{past}"
         );
+    }
+
+    #[test]
+    fn the_three_year_limitation_applies_only_to_a_merchant_creditor() {
+        let notices = |case: &Answers| draft_document(KIND.id, case).unwrap().notices.join("\n");
+        let old = corporate_case()
+            .with("due_on", "2023-01-31")
+            .with("supplied_on", "2023-01-02");
+
+        let individual = notices(&old.clone().with("creditor_type", "individual"));
+        assert!(!individual.contains("소멸시효"), "{individual}");
+
+        let sole = notices(
+            &old.with("creditor_type", "sole_proprietor")
+                .with("creditor_trade_name", "가나상회"),
+        );
+        assert!(sole.contains("소멸시효 3년이"), "{sole}");
     }
 
     #[test]
