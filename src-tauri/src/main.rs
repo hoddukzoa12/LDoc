@@ -3,6 +3,8 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod assist;
+
 use ldoc_core::{Answers, DocSummary, Document, Draft, DraftError, Form};
 use std::{fs, path::PathBuf};
 
@@ -31,7 +33,17 @@ fn export_docx(document: Document, path: PathBuf) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![catalog, form, draft, export_docx])
+        .manage(assist::Assist::default())
+        .invoke_handler(tauri::generate_handler![
+            catalog,
+            form,
+            draft,
+            export_docx,
+            assist::assist_status,
+            assist::assist_preview,
+            assist::assist_run,
+            assist::assist_sent,
+        ])
         .run(tauri::generate_context!())
         .expect("the LDoc window to run");
 }

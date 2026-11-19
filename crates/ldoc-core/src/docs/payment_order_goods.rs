@@ -2,6 +2,7 @@
 //! guide doc-125 of korean-legal-doc-drafter.
 
 use super::{CostLine, DocKind, Draft};
+use crate::assist::MaskCategory;
 use crate::document::{Align, Block, Document};
 use crate::fees::{self, Filing};
 use crate::form::{Answers, Choices, Field, FieldError, Form, Reader, Step};
@@ -110,10 +111,13 @@ fn form() -> Form {
     let party_fields = |side: &str, role: &str| {
         let id = |name: &str| format!("{side}_{name}");
         vec![
-            Field::text(&id("name"), &format!("{role} 성명 또는 법인명")),
+            Field::text(&id("name"), &format!("{role} 성명 또는 법인명")).pii(MaskCategory::Person),
             Field::text(&id("representative"), "대표이사 성명")
+                .pii(MaskCategory::Person)
                 .show_when(&id("type"), &["corporation"]),
-            Field::text(&id("trade_name"), "상호").show_when(&id("type"), &["sole_proprietor"]),
+            Field::text(&id("trade_name"), "상호")
+                .pii(MaskCategory::Organization)
+                .show_when(&id("type"), &["sole_proprietor"]),
             Field::text(&id("business"), "업종")
                 .help("예: 식자재 도매")
                 .show_when(&id("type"), &BUSINESS),
@@ -122,17 +126,22 @@ fn form() -> Form {
 
     let mut creditor = party_fields("creditor", "채권자");
     creditor.extend([
-        Field::text("creditor_id", "주민등록번호 (법인은 법인등록번호)"),
-        Field::text("creditor_address", "주소 (법인은 본점 소재지)"),
-        Field::text("creditor_phone", "연락처").help("법원의 보정명령을 받을 번호입니다."),
+        Field::text("creditor_id", "주민등록번호 (법인은 법인등록번호)")
+            .pii(MaskCategory::ResidentNo),
+        Field::text("creditor_address", "주소 (법인은 본점 소재지)").pii(MaskCategory::Address),
+        Field::text("creditor_phone", "연락처")
+            .help("법원의 보정명령을 받을 번호입니다.")
+            .pii(MaskCategory::Phone),
     ]);
 
     let mut debtor = party_fields("debtor", "채무자");
     debtor.extend([
         Field::text("debtor_id", "주민등록번호 (법인은 법인등록번호)")
+            .pii(MaskCategory::ResidentNo)
             .optional()
             .help("모르면 비워 두세요. 사업자등록번호처럼 확보한 식별 정보를 적어도 됩니다."),
         Field::text("debtor_address", "송달 가능한 주소")
+            .pii(MaskCategory::Address)
             .help("사업장이나 본점 주소입니다. 지급명령은 공시송달이 되지 않습니다."),
     ]);
 
@@ -1153,6 +1162,26 @@ mod tests {
                 .with("creditor_trade_name", "가나상회"),
         );
         assert!(sole.contains("소멸시효 3년이"), "{sole}");
+    }
+
+    #[test]
+    fn names_identifiers_addresses_and_phones_are_personal() {
+        let personal: Vec<String> = form_of(KIND.id)
+            .unwrap()
+            .steps
+            .into_iter()
+            .flat_map(|step| step.fields)
+            .filter(|field| field.pii.0.is_some())
+            .map(|field| field.id)
+            .collect();
+        for side in ["creditor", "debtor"] {
+            for name in ["name", "representative", "trade_name", "id", "address"] {
+                let id = format!("{side}_{name}");
+                assert!(personal.contains(&id), "{id} is not personal");
+            }
+        }
+        assert!(personal.contains(&"creditor_phone".to_string()));
+        assert_eq!(personal.len(), 11, "{personal:?}");
     }
 
     #[test]

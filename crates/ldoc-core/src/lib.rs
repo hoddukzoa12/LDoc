@@ -2,6 +2,7 @@
 //! for, and the document it produces. Nothing here knows about the desktop
 //! shell or the editor.
 
+mod assist;
 mod docs;
 mod document;
 mod docx;
@@ -11,6 +12,11 @@ mod josa;
 mod money;
 mod rates;
 
+pub use assist::{
+    Candidate, FieldSpec, MaskCategory, MaskPreview, MaskSource, Masked, MaskedText, Personal,
+    Pointer, ProposedAnswer, Rejection, Sensitivity, TurnEnd, TurnFailure, TurnOutcome,
+    TurnProposal, TurnRequest, TurnResult, mask, open_fields, outcome, resolve,
+};
 pub use docs::{CostLine, DocSummary, Draft, DraftError, catalog, draft, form};
 pub use document::{Align, Block, Document};
 pub use docx::to_docx;

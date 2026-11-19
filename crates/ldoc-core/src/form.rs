@@ -1,6 +1,7 @@
 //! The questions a document asks, and the reader that turns the raw answers
 //! into typed values.
 
+use crate::assist::{MaskCategory, Personal, Sensitivity};
 use crate::money::Won;
 use jiff::civil::Date;
 use serde::{Deserialize, Serialize};
@@ -30,6 +31,10 @@ pub struct Field {
     pub required: bool,
     /// The field is asked only while this holds. `None` means always.
     pub show_when: Option<Condition>,
+    /// Whether the answer is personal. The screen sees only that.
+    #[serde(rename = "sensitivity")]
+    #[ts(as = "Sensitivity")]
+    pub pii: Personal,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -59,7 +64,7 @@ pub struct Condition {
     pub is_one_of: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(untagged)]
 #[ts(export)]
 pub enum Answer {
@@ -86,6 +91,27 @@ impl Field {
             kind,
             required: true,
             show_when: None,
+            pii: Personal(None),
+        }
+    }
+
+    /// Marks the answer as personal: it never goes to a model, and pasted
+    /// text that repeats it is masked as `category`.
+    pub fn pii(mut self, category: MaskCategory) -> Field {
+        self.pii = Personal(Some(category));
+        self
+    }
+
+    /// Whether the form asks this field, given the answers so far.
+    pub fn is_shown(&self, answers: &Answers) -> bool {
+        let Some(condition) = &self.show_when else {
+            return true;
+        };
+        let holds = |value: &String| condition.is_one_of.contains(value);
+        match answers.get(&condition.field) {
+            Some(Answer::One(value)) => holds(value),
+            Some(Answer::Many(values)) => values.iter().any(holds),
+            None => false,
         }
     }
 
@@ -221,7 +247,7 @@ impl<'a> Reader<'a> {
 
     pub fn optional_date(&mut self, field: &str) -> Option<Date> {
         let text = self.one(field)?;
-        let day = text.parse().ok();
+        let day = parse_date(text);
         if day.is_none() {
             self.fail(field, "날짜 형식이 올바르지 않습니다.");
         }
@@ -265,9 +291,80 @@ impl<'a> Reader<'a> {
     }
 }
 
+/// Reads a calendar date written as `2026-03-31`, `2026. 3. 31.` or
+/// `2026년 3월 31일`. A date without a year is not read.
+pub fn parse_date(text: &str) -> Option<Date> {
+    let text = text.trim();
+    if let Ok(day) = text.parse() {
+        return Some(day);
+    }
+    let parts: Vec<&str> = text
+        .split(['.', '년', '월', '일'])
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect();
+    let [year, month, day] = parts.as_slice() else {
+        return None;
+    };
+    let number = |part: &str| -> Option<i16> {
+        part.bytes()
+            .all(|b| b.is_ascii_digit())
+            .then(|| part.parse().ok())?
+    };
+    let (year, month, day) = (number(year)?, number(month)?, number(day)?);
+    if year < 1000 {
+        return None;
+    }
+    Date::new(year, i8::try_from(month).ok()?, i8::try_from(day).ok()?).ok()
+}
+
 fn lookup<T: Copy>(choices: Choices<T>, key: &str) -> Option<T> {
     choices
         .iter()
         .find(|(candidate, _, _)| *candidate == key)
         .map(|(_, _, value)| *value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jiff::civil::date;
+
+    #[test]
+    fn reads_dates_the_way_korean_text_writes_them() {
+        for text in [
+            "2026-03-31",
+            "2026. 3. 31.",
+            "2026.3.31",
+            "2026년 3월 31일",
+            " 2026. 03. 31 ",
+        ] {
+            assert_eq!(parse_date(text), Some(date(2026, 3, 31)), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn does_not_guess_a_date() {
+        for text in [
+            "3월 31일",
+            "3월 말",
+            "2026. 2. 30.",
+            "26. 3. 31.",
+            "2026-3",
+            "2026년 3월 31일까지",
+        ] {
+            assert_eq!(parse_date(text), None, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_field_is_shown_while_its_condition_holds() {
+        let field = Field::text("supplied_on", "공급일").show_when("trade_type", &["one_time"]);
+        let mut answers = Answers::new();
+        assert!(!field.is_shown(&answers));
+        answers.insert("trade_type".into(), Answer::One("one_time".into()));
+        assert!(field.is_shown(&answers));
+        answers.insert("trade_type".into(), Answer::One("continuous".into()));
+        assert!(!field.is_shown(&answers));
+    }
 }

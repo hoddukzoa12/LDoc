@@ -3,6 +3,7 @@
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import type { ISODateString } from "@astryxdesign/core/Calendar";
+import { Card } from "@astryxdesign/core/Card";
 import { Center } from "@astryxdesign/core/Center";
 import { CheckboxList, CheckboxListItem } from "@astryxdesign/core/CheckboxList";
 import { DateInput } from "@astryxdesign/core/DateInput";
@@ -15,8 +16,9 @@ import { Step, Stepper } from "@astryxdesign/core/Stepper";
 import { Heading, Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { Filling } from "./App";
+import type { Readable } from "./AssistPanel";
 import type { Answer } from "./bindings/Answer";
 import type { Field } from "./bindings/Field";
 import type { Answers } from "./ipc";
@@ -24,14 +26,6 @@ import type { Answers } from "./ipc";
 /** The form column, and the rail and side panel beside it, as in the form-wizard-vertical template. */
 const MEASURE = 640;
 const PANEL_WIDTH = 300;
-/** The Layout's padding={4}, which every slot applies. */
-const LAYOUT_INSET = 16;
-/**
- * The footer spans the page, but its buttons belong under the fields. With the
- * rail up and no side panel the form column sits right of centre, so the footer
- * leans the same way, as the template does.
- */
-const footerLean: CSSProperties = { marginInlineStart: PANEL_WIDTH - LAYOUT_INSET };
 
 /** The field is asked while the answer to its condition's field is, or includes, one of the values. */
 export function isShown(field: Field, answers: Answers): boolean {
@@ -51,10 +45,10 @@ export function FormScreen({
   filling: Filling;
   onChange: (filling: Filling) => void;
   onNext: () => void;
-  /** The side panel beside the form, if any. */
-  side?: ReactNode;
+  /** The panel beside the form. */
+  side: ReactNode;
 }) {
-  const { doc, form, step, answers, errors } = filling;
+  const { doc, form, step, answers, errors, candidates } = filling;
   const current = form.steps[step]!;
   const shown = current.fields.filter((field) => isShown(field, answers));
   const unplaced = errors.filter(
@@ -66,6 +60,16 @@ export function FormScreen({
   const answer = (id: string, value: Answer) =>
     onChange({ ...filling, answers: { ...answers, [id]: value }, errors: errors.filter((error) => error.field !== id) });
   const goTo = (index: number) => onChange({ ...filling, step: index });
+  const candidateFor = (id: string) => candidates.find((candidate) => candidate.field === id);
+  const without = (taken: Readable) => candidates.filter((candidate) => candidate !== taken);
+  const accept = (field: Field, taken: Readable) =>
+    onChange({
+      ...filling,
+      answers: { ...answers, [field.id]: merged(field, answers[field.id], taken.value) },
+      candidates: without(taken),
+      errors: errors.filter((error) => error.field !== field.id),
+    });
+  const dismiss = (taken: Readable) => onChange({ ...filling, candidates: without(taken) });
 
   return (
     <Layout
@@ -81,12 +85,15 @@ export function FormScreen({
           <Stepper activeStep={step} orientation="vertical" onStepClick={goTo} label="작성 단계">
             {form.steps.map((candidate, index) => {
               const invalid = candidate.fields.some((field) => errorOf(field.id) !== undefined);
+              const waiting = candidate.fields.filter((field) => candidateFor(field.id)).length;
               return (
                 <Step
                   key={candidate.title}
                   step={index}
                   label={candidate.title}
-                  description={invalid ? "확인이 필요한 항목이 있습니다." : undefined}
+                  description={
+                    invalid ? "확인이 필요한 항목이 있습니다." : waiting > 0 ? `후보 ${waiting}개` : undefined
+                  }
                   status={invalid ? "error" : undefined}
                   indicator={invalid ? <Icon icon="error" size="sm" /> : "number"}
                 />
@@ -96,11 +103,9 @@ export function FormScreen({
         </LayoutPanel>
       }
       end={
-        side && (
-          <LayoutPanel width={PANEL_WIDTH} role="complementary" label="붙여 넣은 글로 채우기">
-            {side}
-          </LayoutPanel>
-        )
+        <LayoutPanel width={PANEL_WIDTH} hasDivider role="complementary" label="붙여 넣은 글로 채우기">
+          {side}
+        </LayoutPanel>
       }
       content={
         <LayoutContent>
@@ -122,16 +127,27 @@ export function FormScreen({
               )}
 
               <FormLayout defaultOptionality="required">
-                {shown.map((field) => (
-                  <VStack key={field.id} gap={2} data-field={field.id} data-kind={field.kind.type}>
-                    <FieldInput
-                      field={field}
-                      answer={answers[field.id]}
-                      error={errorOf(field.id)}
-                      onAnswer={(value) => answer(field.id, value)}
-                    />
-                  </VStack>
-                ))}
+                {shown.map((field) => {
+                  const candidate = candidateFor(field.id);
+                  return (
+                    <VStack key={field.id} gap={2} data-field={field.id} data-kind={field.kind.type}>
+                      <FieldInput
+                        field={field}
+                        answer={answers[field.id]}
+                        error={errorOf(field.id)}
+                        onAnswer={(value) => answer(field.id, value)}
+                      />
+                      {candidate && (
+                        <CandidateNote
+                          field={field}
+                          candidate={candidate}
+                          onAccept={() => accept(field, candidate)}
+                          onDismiss={() => dismiss(candidate)}
+                        />
+                      )}
+                    </VStack>
+                  );
+                })}
               </FormLayout>
             </VStack>
           </Center>
@@ -139,7 +155,7 @@ export function FormScreen({
       }
       footer={
         <LayoutFooter hasDivider>
-          <Center axis="horizontal" style={side ? undefined : footerLean}>
+          <Center axis="horizontal">
             <HStack gap={3} vAlign="center" width="100%" maxWidth={MEASURE}>
               <Button label="이전" variant="secondary" isDisabled={step === 0} onClick={() => goTo(step - 1)} />
               <StackItem size="fill" />
@@ -149,6 +165,52 @@ export function FormScreen({
         </LayoutFooter>
       }
     />
+  );
+}
+
+/** A multi-choice candidate adds to what is already ticked; any other replaces the answer. */
+function merged(field: Field, current: Answer | undefined, value: Answer): Answer {
+  if (field.kind.type !== "multi_choice" || !Array.isArray(value) || !Array.isArray(current)) return value;
+  return field.kind.options.map((option) => option.value).filter((key) => current.includes(key) || value.includes(key));
+}
+
+/** What a candidate would answer, as the field shows it: choices by their label. */
+function shownValue(field: Field, value: Answer): string {
+  const keys = typeof value === "string" ? [value] : value;
+  const kind = field.kind;
+  if (kind.type !== "choice" && kind.type !== "multi_choice") return keys.join(", ");
+  return keys.map((key) => kind.options.find((option) => option.value === key)?.label ?? key).join(", ");
+}
+
+function CandidateNote({
+  field,
+  candidate,
+  onAccept,
+  onDismiss,
+}: {
+  field: Field;
+  candidate: Readable;
+  onAccept: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <Card variant="blue" padding={3} data-candidate={field.id}>
+      <VStack gap={2}>
+        <VStack gap={0.5}>
+          <Text type="supporting">붙여 넣은 글에서 찾은 후보</Text>
+          <Text type="body" weight="semibold">
+            {shownValue(field, candidate.value)}
+          </Text>
+          <Text type="supporting" color="secondary">
+            근거: “{candidate.quoted}”
+          </Text>
+        </VStack>
+        <HStack gap={2}>
+          <Button label="받아들이기" size="sm" data-action="accept" onClick={onAccept} />
+          <Button label="버리기" size="sm" variant="ghost" data-action="dismiss" onClick={onDismiss} />
+        </HStack>
+      </VStack>
+    </Card>
   );
 }
 

@@ -18,10 +18,11 @@ React 화면 (src/)
 	양식 렌더링, Univer Docs 편집기, 비용과 안내 표시
 		│  Tauri IPC. 타입은 src/bindings/ (코어에서 생성)
 Tauri 셸 (src-tauri/)
-	명령 네 개: catalog, form, draft, export_docx
+	명령: catalog, form, draft, export_docx, 도우미의 assist_status, assist_preview, assist_run, assist_sent
+	도우미는 지금 녹화한 응답을 재생합니다(src-tauri/replay/). 모델을 부르지 않습니다
 		│
 ldoc-core (crates/ldoc-core/)
-	양식 정의, 입력 해석, 수수료와 이율 계산, 문구 생성, DOCX 쓰기
+	양식 정의, 입력 해석, 수수료와 이율 계산, 문구 생성, DOCX 쓰기, 붙여 넣은 글 가리기와 가리킨 값 읽기(assist.rs)
 ```
 
 - **코어가 사실을 전부 가집니다.** 화면은 돈과 날짜를 계산하지 않습니다. 코어는 셸과 편집기를 모릅니다. 그래서 코어는 `cargo test`만으로 검증됩니다.

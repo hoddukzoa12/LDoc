@@ -1,0 +1,111 @@
+{
+  "anchor": "물품공급계약서",
+  "note": "the model reads the parties, the goods, the price and the due date; it also points at the supply date, which the form does not ask yet",
+  "result": {
+    "id": "recorded",
+    "ok": true,
+    "proposal": {
+      "kind": "fill",
+      "answers": [
+        {
+          "field": "creditor_type",
+          "pointer": {
+            "by": "option",
+            "value": "corporation"
+          }
+        },
+        {
+          "field": "debtor_type",
+          "pointer": {
+            "by": "option",
+            "value": "corporation"
+          }
+        },
+        {
+          "field": "trade_type",
+          "pointer": {
+            "by": "option",
+            "value": "one_time"
+          }
+        },
+        {
+          "field": "goods",
+          "pointer": {
+            "by": "quote",
+            "text": "냉동 수산물 200박스"
+          }
+        },
+        {
+          "field": "total",
+          "pointer": {
+            "by": "quote",
+            "text": "10,000,000원"
+          }
+        },
+        {
+          "field": "vat",
+          "pointer": {
+            "by": "option",
+            "value": "included"
+          }
+        },
+        {
+          "field": "due_on",
+          "pointer": {
+            "by": "quote",
+            "text": "2026. 3. 31."
+          }
+        },
+        {
+          "field": "creditor_name",
+          "pointer": {
+            "by": "placeholder",
+            "token": "⟦가린말1⟧"
+          }
+        },
+        {
+          "field": "creditor_id",
+          "pointer": {
+            "by": "placeholder",
+            "token": "⟦법인등록번호1⟧"
+          }
+        },
+        {
+          "field": "creditor_address",
+          "pointer": {
+            "by": "placeholder",
+            "token": "⟦가린말3⟧"
+          }
+        },
+        {
+          "field": "creditor_phone",
+          "pointer": {
+            "by": "placeholder",
+            "token": "⟦전화번호1⟧"
+          }
+        },
+        {
+          "field": "debtor_name",
+          "pointer": {
+            "by": "placeholder",
+            "token": "⟦가린말4⟧"
+          }
+        },
+        {
+          "field": "debtor_address",
+          "pointer": {
+            "by": "placeholder",
+            "token": "⟦가린말6⟧"
+          }
+        },
+        {
+          "field": "supplied_on",
+          "pointer": {
+            "by": "quote",
+            "text": "2026. 3. 2."
+          }
+        }
+      ]
+    }
+  }
+}

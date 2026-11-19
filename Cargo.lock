@@ -1791,9 +1791,12 @@ name = "ldoc"
 version = "0.1.0"
 dependencies = [
  "ldoc-core",
+ "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "ts-rs",
 ]
 
 [[package]]
@@ -1801,6 +1804,7 @@ name = "ldoc-core"
 version = "0.1.0"
 dependencies = [
  "jiff 1.0.1",
+ "regex",
  "serde",
  "serde_json",
  "ts-rs",

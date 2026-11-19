@@ -1,6 +1,9 @@
-// Drives the built app through tauri-driver. It answers the form with the
-// example answers, checks that an empty required field is reported, edits the
-// draft, exports it through the native save dialog, and reads the DOCX back.
+// Drives the built app through tauri-driver. It pastes a contract into the
+// assistant, masks what is still personal, approves, checks that none of the
+// contract's personal strings is in what would have left the device, and
+// accepts the candidates. It answers the rest of the form with the example
+// answers, checks that an empty required field is reported, edits the draft,
+// exports it through the native save dialog, and reads the DOCX back.
 // Run under xvfb-run after `pnpm tauri build --no-bundle`.
 
 import assert from "node:assert/strict";
@@ -13,14 +16,20 @@ import { Builder, By, Capabilities, Key, until } from "selenium-webdriver";
 const root = resolve(import.meta.dirname, "..");
 const out = join(root, "e2e-out");
 const answers = JSON.parse(readFileSync(join(root, "crates/ldoc-core/examples/payment-order-goods.json"), "utf8"));
+/** The contract whose recorded reply the replay build returns. */
+const pasted = JSON.parse(readFileSync(join(root, "e2e/assist-fixtures.json"), "utf8")).find(
+  (fixture) => fixture.id === "contract",
+);
 
 /** The claim sentence `cargo run -p ldoc-core --example draft` prints for the example answers. */
 const CLAIM =
   "채무자는 채권자에게 금 7,000,000원 (칠백만 원) 및 이에 대하여 2026. 4. 1.부터 이 사건 지급명령 정본 송달일까지는 연 6%의, 그 다음 날부터 다 갚는 날까지는 연 12%의 각 비율로 계산한 돈을 지급하라.";
 /** Typed into the editor to prove the export carries the person's edits. */
 const EDIT = "E2E";
-/** A required field on the last step, left empty on the first submit. */
+/** A required field on the last step, its candidate dismissed and left empty on the first submit. */
 const LEFT_EMPTY = "debtor_address";
+/** Kinds whose input shows the answer as stored. */
+const TYPED = new Set(["text", "money"]);
 
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out);
@@ -57,23 +66,82 @@ async function answerForm() {
   await find("[data-disclaimer]");
   await screenshot("choose.png");
   await (await find('[data-doc="payment-order-goods"]')).click();
+  await fillFromPaste();
   const steps = Number(await (await find("[data-steps]")).getAttribute("data-steps"));
+  const accepted = new Set();
   for (let step = 0; step < steps; step++) {
     await find(`[data-step="${step}"]`);
+    if (step === 2) {
+      await scrollFormToTop();
+      await screenshot("assist-candidates.png");
+    }
+    await decideCandidates(accepted);
     const last = step === steps - 1;
-    await fillStep(last ? LEFT_EMPTY : null);
+    await fillStep(new Set(last ? [...accepted, LEFT_EMPTY] : accepted));
     if (step === 2) {
       await scrollFormToTop();
       await screenshot("form-step.png");
     }
     await submit();
   }
+  assert.ok(accepted.size >= 10, `only ${accepted.size} candidates were accepted`);
 
   const missing = await find(`[data-field="${LEFT_EMPTY}"]`);
   await driver.wait(async () => (await missing.getText()).includes("필수 항목입니다."), 15_000, "no required-field error");
   await screenshot("form-required-error.png");
   await fill(await find(`[data-field="${LEFT_EMPTY}"]`), answers[LEFT_EMPTY]);
   await submit();
+}
+
+/**
+ * Pastes the contract, masks each personal string the preview still shows,
+ * approves, and checks the request body the shell recorded for the turn.
+ */
+async function fillFromPaste() {
+  await find('[data-assist="replay"]');
+  // WebKitWebDriver drops a typed "\n", so each line break is an Enter press.
+  const lines = pasted.pasted.split("\n");
+  await (await find('[data-assist="paste"] textarea')).sendKeys(
+    ...lines.flatMap((line, index) => (index === 0 ? [line] : [Key.ENTER, line])),
+  );
+  await (await find('[data-action="preview"]')).click();
+  const shown = async () => (await find("[data-masked]")).getAttribute("textContent");
+  for (const personal of pasted.pii) {
+    if (!(await shown()).includes(personal)) continue;
+    await (await find('[data-assist="word"] input')).sendKeys(personal);
+    await (await find('[data-action="mask-word"]')).click();
+    await driver.wait(async () => !(await shown()).includes(personal), 15_000, `${personal} stayed in the preview`);
+  }
+  await screenshot("assist-preview.png");
+
+  await (await find('[data-action="approve"]')).click();
+  await find('[data-assist="done"]');
+  await (await find('[data-action="show-sent"]')).click();
+  const sent = await (await find("[data-sent]")).getAttribute("textContent");
+  writeFileSync(join(out, "assist-sent.json"), sent);
+  assert.ok(sent.includes("⟦") && sent.includes("물품공급계약서"), "the sent body is not the masked contract");
+  for (const personal of pasted.pii) {
+    assert.ok(!sent.includes(personal), `${personal} is in what left the device`);
+  }
+}
+
+/** Accepts every candidate on the step except the one for LEFT_EMPTY, which it dismisses. */
+async function decideCandidates(accepted) {
+  for (;;) {
+    const notes = await driver.findElements(By.css("[data-step] [data-candidate]"));
+    if (notes.length === 0) return;
+    const id = await notes[0].getAttribute("data-candidate");
+    const action = id === LEFT_EMPTY ? "dismiss" : "accept";
+    await (await notes[0].findElement(By.css(`[data-action="${action}"]`))).click();
+    await driver.wait(until.stalenessOf(notes[0]), 15_000, `the ${id} candidate stayed`);
+    if (action === "dismiss") continue;
+    accepted.add(id);
+    const field = await find(`[data-field="${id}"]`);
+    if (TYPED.has(await field.getAttribute("data-kind"))) {
+      const input = await field.findElement(By.css("input, textarea"));
+      assert.equal(await input.getAttribute("value"), answers[id], `the ${id} candidate`);
+    }
+  }
 }
 
 /** Fills every shown field the answers cover, again after each fill reveals new fields. */
@@ -83,7 +151,7 @@ async function fillStep(skip) {
     let next = null;
     for (const field of await driver.findElements(By.css("[data-step] [data-field]"))) {
       const id = await field.getAttribute("data-field");
-      if (!done.has(id) && id !== skip && id in answers) {
+      if (!done.has(id) && !skip.has(id) && id in answers) {
         next = { id, field };
         break;
       }

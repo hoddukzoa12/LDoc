@@ -18,6 +18,7 @@ import type { DocSummary } from "./bindings/DocSummary";
 import type { Draft } from "./bindings/Draft";
 import type { FieldError } from "./bindings/FieldError";
 import type { Form } from "./bindings/Form";
+import { AssistPanel, type Readable } from "./AssistPanel";
 import { Disclaimer } from "./Disclaimer";
 import { EditorScreen } from "./EditorScreen";
 import { FormScreen } from "./FormScreen";
@@ -30,6 +31,8 @@ export type Filling = {
   step: number;
   answers: ipc.Answers;
   errors: FieldError[];
+  /** Answers read from pasted text, waiting beside their fields to be accepted. */
+  candidates: Readable[];
 };
 
 type Screen =
@@ -87,7 +90,7 @@ export function App() {
 
   async function start(doc: DocSummary) {
     const form = await ipc.form(doc.id);
-    if (form) setScreen({ kind: "filling", filling: { doc, form, step: 0, answers: {}, errors: [] } });
+    if (form) setScreen({ kind: "filling", filling: { doc, form, step: 0, answers: {}, errors: [], candidates: [] } });
     else setProblem(`${doc.title} 양식을 찾지 못했습니다.`);
   }
 
@@ -149,6 +152,16 @@ export function App() {
               filling={screen.filling}
               onChange={(filling) => setScreen({ kind: "filling", filling })}
               onNext={() => next(screen.filling).catch(report)}
+              side={
+                <AssistPanel
+                  filling={screen.filling}
+                  onCandidates={(candidates) =>
+                    setScreen((current) =>
+                      current.kind === "filling" ? { kind: "filling", filling: { ...current.filling, candidates } } : current,
+                    )
+                  }
+                />
+              }
             />
           )}
 

@@ -7,6 +7,7 @@ publish.workspace = true
 
 [dependencies]
 jiff = "1"
+regex = "1"
 serde.workspace = true
 ts-rs = "12"
 zip = { version = "9", default-features = false, features = ["deflate"] }
