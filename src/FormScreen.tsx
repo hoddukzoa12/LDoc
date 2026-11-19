@@ -113,61 +113,67 @@ export function FormScreen({
         </LayoutPanel>
       }
       content={
-        <LayoutContent>
-          <Center axis="horizontal">
-            <VStack gap={6} width="100%" maxWidth={MEASURE} data-step={step} data-steps={form.steps.length}>
-              <VStack gap={1}>
-                <Heading level={1}>{current.title}</Heading>
-                <Text type="supporting" color="secondary">
-                  {step + 1} / {form.steps.length} 단계. "선택 사항" 표시가 없는 항목은 꼭 답해야 합니다.
-                </Text>
-              </VStack>
+        // The footer belongs to the form column, so 이전 and 다음 line up with the fields
+        // whatever the widths of the rail and the assist panel.
+        <Layout
+          content={
+            <LayoutContent>
+              <Center axis="horizontal">
+                <VStack gap={6} width="100%" maxWidth={MEASURE} data-step={step} data-steps={form.steps.length}>
+                  <VStack gap={1}>
+                    <Heading level={1}>{current.title}</Heading>
+                    <Text type="supporting" color="secondary">
+                      {step + 1} / {form.steps.length} 단계. "선택 사항" 표시가 없는 항목은 꼭 답해야 합니다.
+                    </Text>
+                  </VStack>
 
-              {unplaced.length > 0 && (
-                <Banner
-                  status="error"
-                  title="입력을 확인해 주세요"
-                  description={unplaced.map((error) => error.message).join(" ")}
-                />
-              )}
+                  {unplaced.length > 0 && (
+                    <Banner
+                      status="error"
+                      title="입력을 확인해 주세요"
+                      description={unplaced.map((error) => error.message).join(" ")}
+                    />
+                  )}
 
-              <FormLayout defaultOptionality="required">
-                {shown.map((field) => {
-                  const candidate = candidateFor(field.id);
-                  return (
-                    <VStack key={field.id} gap={2} data-field={field.id} data-kind={field.kind.type}>
-                      <FieldInput
-                        field={field}
-                        answer={answers[field.id]}
-                        error={errorOf(field.id)}
-                        onAnswer={(value) => answer(field.id, value)}
-                      />
-                      {candidate && (
-                        <CandidateNote
-                          field={field}
-                          candidate={candidate}
-                          onAccept={() => accept(field, candidate)}
-                          onDismiss={() => dismiss(candidate)}
-                        />
-                      )}
-                    </VStack>
-                  );
-                })}
-              </FormLayout>
-            </VStack>
-          </Center>
-        </LayoutContent>
-      }
-      footer={
-        <LayoutFooter hasDivider>
-          <Center axis="horizontal">
-            <HStack gap={3} vAlign="center" width="100%" maxWidth={MEASURE}>
-              <Button label="이전" variant="secondary" isDisabled={step === 0} onClick={() => goTo(step - 1)} />
-              <StackItem size="fill" />
-              <Button label={last ? "초안 만들기" : "다음"} variant="primary" data-action="next" onClick={onNext} />
-            </HStack>
-          </Center>
-        </LayoutFooter>
+                  <FormLayout defaultOptionality="required">
+                    {shown.map((field) => {
+                      const candidate = candidateFor(field.id);
+                      return (
+                        <VStack key={field.id} gap={2} data-field={field.id} data-kind={field.kind.type}>
+                          <FieldInput
+                            field={field}
+                            answer={answers[field.id]}
+                            error={errorOf(field.id)}
+                            onAnswer={(value) => answer(field.id, value)}
+                          />
+                          {candidate && (
+                            <CandidateNote
+                              field={field}
+                              candidate={candidate}
+                              onAccept={() => accept(field, candidate)}
+                              onDismiss={() => dismiss(candidate)}
+                            />
+                          )}
+                        </VStack>
+                      );
+                    })}
+                  </FormLayout>
+                </VStack>
+              </Center>
+            </LayoutContent>
+          }
+          footer={
+            <LayoutFooter hasDivider>
+              <Center axis="horizontal">
+                <HStack gap={3} vAlign="center" width="100%" maxWidth={MEASURE}>
+                  <Button label="이전" variant="secondary" isDisabled={step === 0} onClick={() => goTo(step - 1)} />
+                  <StackItem size="fill" />
+                  <Button label={last ? "초안 만들기" : "다음"} variant="primary" data-action="next" onClick={onNext} />
+                </HStack>
+              </Center>
+            </LayoutFooter>
+          }
+        />
       }
     />
   );
@@ -208,7 +214,9 @@ function CandidateNote({
               {shownValue(field, candidate.value)}
             </Text>
             <Text type="supporting" color="secondary">
-              근거: “{candidate.quoted}”
+              {candidate.quoted === null
+                ? "글에서 옮긴 말이 아니라 도우미가 고른 선택지입니다. 글과 맞는지 확인하세요."
+                : `근거: “${candidate.quoted}”`}
             </Text>
           </VStack>
         </StackItem>

@@ -8,6 +8,8 @@ import type { Rejection } from "./Rejection";
  */
 export type Candidate = { "status": "readable", field: string, value: Answer, 
 /**
- * The source as the person wrote it, placeholders restored.
+ * The source as the person wrote it, placeholders restored. None
+ * when the model picked one of the field's choices, which quotes
+ * nothing from the text.
  */
-quoted: string, } | { "status": "rejected", field: string, reason: Rejection, };
+quoted: string | null, } | { "status": "rejected", field: string, reason: Rejection, };

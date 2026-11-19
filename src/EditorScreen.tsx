@@ -27,11 +27,17 @@ const PANEL_WIDTH = 340;
 
 /**
  * Toolbar entries for formatting the Word export drops (docs/architecture.md
- * hole 9). The export keeps each paragraph's text, its alignment, and the
- * weight and size of its first character, so bold, size and alignment stay.
+ * hole 9). The export keeps each paragraph's text and alignment, and takes the
+ * weight and size of the whole paragraph from its first character. Bold, size,
+ * the format painter and clear formatting work on part of a paragraph, so the
+ * file would differ from the screen; only alignment stays.
  */
 const DROPPED_ON_EXPORT = Object.fromEntries(
   [
+    "doc.command.set-inline-format-bold",
+    "doc.command.set-inline-format-fontsize",
+    "ui.operation.activate-format-painter",
+    "ui.command.clear-formatting",
     "doc.command.set-inline-format-italic",
     "doc.command.set-inline-format-underline",
     "doc.command.set-inline-format-strikethrough",

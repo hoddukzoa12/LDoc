@@ -290,7 +290,8 @@ export function AssistPanel({
                   </Collapsible>
                 </VStack>
               ))}
-              <HStack>
+              <HStack gap={2}>
+                <Button label="보낸 내용 접기" size="sm" data-action="hide-sent" onClick={() => setPhase({ ...phase, sent: null })} />
                 <Button label="새 글 붙여 넣기" size="sm" variant="ghost" onClick={() => setPhase({ kind: "pasting" })} />
               </HStack>
             </VStack>

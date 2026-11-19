@@ -450,8 +450,10 @@ pub enum Candidate {
     Readable {
         field: String,
         value: Answer,
-        /// The source as the person wrote it, placeholders restored.
-        quoted: String,
+        /// The source as the person wrote it, placeholders restored. None
+        /// when the model picked one of the field's choices, which quotes
+        /// nothing from the text.
+        quoted: Option<String>,
     },
     Rejected {
         field: String,
@@ -486,7 +488,7 @@ fn read(
     masked: &MaskedText,
     offered: &[FieldSpec],
     answer: &ProposedAnswer,
-) -> Result<(Answer, String), Rejection> {
+) -> Result<(Answer, Option<String>), Rejection> {
     let spec = offered
         .iter()
         .find(|spec| spec.id == answer.field)
@@ -498,10 +500,7 @@ fn read(
                 .iter()
                 .find(|option| option.value == *value)
                 .ok_or(Rejection::NotAChoice)?;
-            return Ok((
-                choice_answer(&spec.kind, &option.value),
-                option.label.clone(),
-            ));
+            return Ok((choice_answer(&spec.kind, &option.value), None));
         }
         Pointer::Quote { text } => {
             if text.trim().is_empty() {
@@ -540,7 +539,7 @@ fn read(
         }
     };
     let value = value_of(&spec.kind, &source).ok_or(Rejection::ValueUnreadable)?;
-    Ok((value, source))
+    Ok((value, Some(source)))
 }
 
 /// A figure that goes on before the source: a digit, a comma or point right
@@ -811,7 +810,7 @@ mod tests {
         Candidate::Readable {
             field: field.into(),
             value: Answer::One(value.into()),
-            quoted: quoted.into(),
+            quoted: Some(quoted.into()),
         }
     }
 
@@ -967,7 +966,11 @@ mod tests {
                     value: "included".into()
                 }
             ),
-            readable("vat", "included", "대금에 포함")
+            Candidate::Readable {
+                field: "vat".into(),
+                value: Answer::One("included".into()),
+                quoted: None,
+            }
         );
         assert_eq!(
             resolve_one(

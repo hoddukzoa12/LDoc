@@ -136,7 +136,8 @@ async function fillFromPaste() {
   for (const field of JSON.parse(sent).fields.filter((field) => field.sensitivity === "pii")) {
     assert.equal(field.help, null, `the help text of ${field.id} left the device`);
   }
-  await (await find('[data-action="show-raw"]')).click();
+  await (await find('[data-action="hide-sent"]')).click();
+  await find('[data-action="show-sent"]');
 }
 
 /** Accepts every candidate on the step except the one for LEFT_EMPTY, which it dismisses. */
