@@ -2,6 +2,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type { Answer } from "./bindings/Answer";
+import type { AssistError } from "./bindings/AssistError";
 import type { AssistRun } from "./bindings/AssistRun";
 import type { AssistStatus } from "./bindings/AssistStatus";
 import type { DocSummary } from "./bindings/DocSummary";
@@ -39,9 +40,14 @@ export const exportDocx = (document: Document, path: string) =>
 
 export const assistStatus = () => invoke<AssistStatus>("assist_status");
 
-/** Masks the text in the core. Nothing leaves until the returned `text_id` is approved. */
+/** Masks the text in the core. Nothing leaves until the returned `text_id` is approved. Rejects with an `AssistError`. */
 export const assistPreview = (text: string, doc: string, answers: Answers, extraMasks: string[]) =>
   invoke<MaskPreview>("assist_preview", { text, doc, answers, extraMasks });
+
+/** The shell's `AssistError` when an assist call rejected with one. */
+export function asAssistError(error: unknown): AssistError | null {
+  return typeof error === "object" && error !== null && "type" in error ? (error as AssistError) : null;
+}
 
 /** Approves the previewed text by its id and runs one turn on it. Rejects with an `AssistError`. */
 export const assistRun = (plan: TurnPlan, approvedTextId: string) =>

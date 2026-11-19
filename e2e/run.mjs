@@ -1,7 +1,7 @@
 // Drives the built app through tauri-driver. It pastes a contract into the
-// assistant, masks what is still personal, approves, checks that none of the
-// contract's personal strings is in what would have left the device, and
-// accepts the candidates. It answers the rest of the form with the example
+// assistant, checks that automatic masking hid the identifiers, masks what is
+// still personal, approves, checks that none of the contract's personal
+// strings is in what would have left the device, and accepts the candidates. It answers the rest of the form with the example
 // answers, checks that an empty required field is reported, edits the draft,
 // exports it through the native save dialog, and reads the DOCX back.
 // Run under xvfb-run after `pnpm tauri build --no-bundle`.
@@ -96,8 +96,10 @@ async function answerForm() {
 }
 
 /**
- * Pastes the contract, masks each personal string the preview still shows,
- * approves, and checks the request body the shell recorded for the turn.
+ * Pastes the contract, checks that automatic masking hid its identifiers,
+ * masks each personal string the preview still shows, approves, and checks
+ * the request body the shell recorded for the turn. On the way it tries a
+ * one-letter word and approving while a re-mask is on its way.
  */
 async function fillFromPaste() {
   await find('[data-assist="replay"]');
@@ -108,11 +110,44 @@ async function fillFromPaste() {
   );
   await (await find('[data-action="preview"]')).click();
   const shown = async () => (await find("[data-masked]")).getAttribute("textContent");
+  const automatic = await shown();
+  for (const identifier of pasted.identifiers) {
+    assert.ok(!automatic.includes(identifier), `${identifier} was not masked before any word was added by hand`);
+  }
+
+  const input = await find('[data-assist="word"] input');
+  await input.sendKeys("김");
+  await (await find('[data-action="mask-word"]')).click();
+  await driver.wait(
+    async () => (await (await find('[data-assist="word"]')).getAttribute("textContent")).includes("두 글자 이상"),
+    15_000,
+    "a one-letter word was not refused with a reason",
+  );
+  assert.equal((await driver.findElements(By.css('[data-masked-word="김"]'))).length, 0, "김 is listed as masked");
+  await screenshot("assist-word-refused.png");
+  await input.sendKeys(Key.BACK_SPACE);
+
+  let raced = false;
   for (const personal of pasted.pii) {
     if (!(await shown()).includes(personal)) continue;
-    await (await find('[data-assist="word"] input')).sendKeys(personal);
-    await (await find('[data-action="mask-word"]')).click();
-    await driver.wait(async () => !(await shown()).includes(personal), 15_000, `${personal} stayed in the preview`);
+    await input.sendKeys(personal);
+    if (raced) {
+      await (await find('[data-action="mask-word"]')).click();
+    } else {
+      await approveDuringRemask();
+      raced = true;
+    }
+    await driver.wait(
+      async () => {
+        if ((await driver.findElements(By.css('[data-assist="failed"], [data-assist="done"]'))).length > 0) return true;
+        const masked = await driver.findElements(By.css("[data-masked]"));
+        return masked.length > 0 && !(await masked[0].getAttribute("textContent")).includes(personal);
+      },
+      15_000,
+      `${personal} stayed in the preview`,
+    );
+    const left = await driver.findElements(By.css('[data-assist="failed"], [data-assist="done"]'));
+    assert.equal(left.length, 0, `masking ${personal} left the preview`);
   }
   await screenshot("assist-preview.png");
 
@@ -138,6 +173,22 @@ async function fillFromPaste() {
   }
   await (await find('[data-action="hide-sent"]')).click();
   await find('[data-action="show-sent"]');
+}
+
+/**
+ * Clicks 가리기 and then 승인하고 보내기 before the shell answers, as a quick
+ * second click would. React renders the first click in a microtask queued
+ * during it, so the second click lands on what the person would see by then.
+ */
+async function approveDuringRemask() {
+  await driver.executeAsyncScript(`
+    const done = arguments[arguments.length - 1];
+    document.querySelector('[data-action="mask-word"]').click();
+    queueMicrotask(() => {
+      document.querySelector('[data-action="approve"]').click();
+      done();
+    });
+  `);
 }
 
 /** Accepts every candidate on the step except the one for LEFT_EMPTY, which it dismisses. */

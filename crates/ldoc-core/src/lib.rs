@@ -15,7 +15,7 @@ mod rates;
 pub use assist::{
     Candidate, FieldSpec, MaskCategory, MaskPreview, MaskSource, Masked, MaskedText, Personal,
     Pointer, ProposedAnswer, Rejection, Sensitivity, TurnEnd, TurnFailure, TurnOutcome,
-    TurnProposal, TurnRequest, TurnResult, mask, open_fields, outcome, resolve,
+    TurnProposal, TurnRequest, TurnResult, mask, maskable, open_fields, outcome, resolve,
 };
 pub use docs::{CostLine, DocSummary, Draft, DraftError, catalog, draft, form};
 pub use document::{Align, Block, Document};

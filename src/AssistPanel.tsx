@@ -14,6 +14,7 @@ import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { useEffect, useState } from "react";
 import type { Filling } from "./App";
+import type { AssistError } from "./bindings/AssistError";
 import type { AssistStatus } from "./bindings/AssistStatus";
 import type { Candidate } from "./bindings/Candidate";
 import type { MaskPreview } from "./bindings/MaskPreview";
@@ -28,9 +29,22 @@ type Rejected = Extract<Candidate, { status: "rejected" }>;
 type Phase =
   | { kind: "pasting" }
   | { kind: "previewing"; preview: MaskPreview; words: string[] }
+  /** A new preview with changed words is on its way; the shown one can no longer be approved. */
+  | { kind: "remasking"; preview: MaskPreview; words: string[] }
   | { kind: "running"; preview: MaskPreview; words: string[] }
   | { kind: "done"; turn: string; offered: number; rejected: Rejected[]; sent: SentBody[] | null }
   | { kind: "failed"; message: string };
+
+const ASSIST_ERRORS: Record<AssistError["type"], string> = {
+  unknown_document: "이 문서에는 도우미를 쓸 수 없습니다.",
+  not_approved: "보내려던 글이 마지막으로 미리 본 글과 달라서 보내지 않았습니다. 다시 미리 보고 승인하세요.",
+  word_too_short: "한 글자는 가릴 수 없습니다. 그 글자가 든 다른 말까지 가려지기 때문입니다. 이름 전체처럼 두 글자 이상을 적으세요.",
+};
+
+function messageOf(error: unknown): string {
+  const known = ipc.asAssistError(error);
+  return known ? ASSIST_ERRORS[known.type] : String(error);
+}
 
 const REJECTIONS: Record<Rejection, string> = {
   field_not_offered: "지금 양식이 묻지 않는 칸이라 쓰지 않았습니다.",
@@ -62,6 +76,7 @@ export function AssistPanel({
   const [status, setStatus] = useState<AssistStatus | null>(null);
   const [pasted, setPasted] = useState("");
   const [word, setWord] = useState("");
+  const [wordProblem, setWordProblem] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>({ kind: "pasting" });
 
   useEffect(() => {
@@ -71,12 +86,22 @@ export function AssistPanel({
   const labelOf = (id: string) =>
     filling.form.steps.flatMap((step) => step.fields).find((field) => field.id === id)?.label ?? id;
 
-  async function preview(words: string[]) {
+  /** Shows the text masked with these words. Resolves whether the new preview is now shown. */
+  async function preview(words: string[]): Promise<boolean> {
+    const shown = phase.kind === "previewing" ? phase : null;
+    if (shown) setPhase({ ...shown, kind: "remasking" });
     try {
-      const shown = await ipc.assistPreview(pasted, filling.doc.id, filling.answers, words);
-      setPhase({ kind: "previewing", preview: shown, words });
+      const next = await ipc.assistPreview(pasted, filling.doc.id, filling.answers, words);
+      setPhase({ kind: "previewing", preview: next, words });
+      return true;
     } catch (error) {
-      setPhase({ kind: "failed", message: String(error) });
+      if (shown && ipc.asAssistError(error)?.type === "word_too_short") {
+        setPhase(shown);
+        setWordProblem(messageOf(error));
+      } else {
+        setPhase({ kind: "failed", message: messageOf(error) });
+      }
+      return false;
     }
   }
 
@@ -99,7 +124,7 @@ export function AssistPanel({
         sent: null,
       });
     } catch (error) {
-      setPhase({ kind: "failed", message: String(error) });
+      setPhase({ kind: "failed", message: messageOf(error) });
     }
   }
 
@@ -137,13 +162,13 @@ export function AssistPanel({
               label="가린 글 미리 보기"
               data-action="preview"
               isDisabled={pasted.trim() === ""}
-              onClick={() => preview([])}
+              clickAction={() => preview([]).then(() => {})}
             />
           </HStack>
         </VStack>
       )}
 
-      {(phase.kind === "previewing" || phase.kind === "running") && (
+      {(phase.kind === "previewing" || phase.kind === "remasking" || phase.kind === "running") && (
         <VStack gap={4} data-assist="preview">
           <VStack gap={2}>
             <Text type="label">보낼 글</Text>
@@ -160,8 +185,12 @@ export function AssistPanel({
               label="더 가릴 말"
               placeholder="예: 김가나"
               value={word}
-              onChange={setWord}
+              onChange={(next) => {
+                setWord(next);
+                setWordProblem(null);
+              }}
               isDisabled={phase.kind === "running"}
+              status={wordProblem === null ? undefined : { type: "error", message: wordProblem }}
               onEnter={() => addWord(phase.words)}
             />
             <HStack gap={2}>
@@ -170,6 +199,7 @@ export function AssistPanel({
                 size="sm"
                 data-action="mask-word"
                 isDisabled={word.trim() === "" || phase.kind === "running"}
+                isLoading={phase.kind === "remasking"}
                 onClick={() => addWord(phase.words)}
               />
             </HStack>
@@ -179,12 +209,13 @@ export function AssistPanel({
                   <ListItem
                     key={masked}
                     label={masked}
+                    data-masked-word={masked}
                     endContent={
                       <Button
                         label="가리지 않기"
                         size="sm"
                         variant="ghost"
-                        isDisabled={phase.kind === "running"}
+                        isDisabled={phase.kind !== "previewing"}
                         onClick={() => preview(phase.words.filter((candidate) => candidate !== masked))}
                       />
                     }
@@ -199,15 +230,23 @@ export function AssistPanel({
           ) : (
             <VStack gap={2}>
               <Text type="supporting" color="secondary">
-                승인하면 위의 가린 글과 빈 칸의 이름만 보냅니다.
+                {phase.kind === "remasking"
+                  ? "가린 글을 다시 만드는 중입니다. 새 글이 보이면 승인할 수 있습니다."
+                  : "승인하면 위의 가린 글과 빈 칸의 이름만 보냅니다."}
               </Text>
               <HStack gap={2}>
                 <Button
                   label="승인하고 보내기"
                   data-action="approve"
+                  isDisabled={phase.kind !== "previewing"}
                   onClick={() => approve(phase.preview, phase.words)}
                 />
-                <Button label="취소" variant="ghost" onClick={() => setPhase({ kind: "pasting" })} />
+                <Button
+                  label="취소"
+                  variant="ghost"
+                  isDisabled={phase.kind !== "previewing"}
+                  onClick={() => setPhase({ kind: "pasting" })}
+                />
               </HStack>
             </VStack>
           )}
@@ -310,11 +349,10 @@ export function AssistPanel({
     </VStack>
   );
 
-  function addWord(words: string[]) {
+  async function addWord(words: string[]) {
     const added = word.trim();
-    if (added === "" || words.includes(added)) return;
-    setWord("");
-    void preview([...words, added]);
+    if (phase.kind !== "previewing" || added === "" || words.includes(added)) return;
+    if (await preview([...words, added])) setWord("");
   }
 }
 

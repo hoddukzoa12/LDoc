@@ -33,6 +33,37 @@ fn shown(candidate: &Candidate) -> (String, String) {
     }
 }
 
+/// Masking with no answers and no added words removes the fixture's
+/// identifiers and nothing else on its personal list: names and addresses
+/// stay until the person masks them.
+#[test]
+fn automatic_masking_alone_removes_exactly_the_identifiers() {
+    let form = form("payment-order-goods").unwrap();
+    let fixtures = read("../../e2e/assist-fixtures.json");
+    for fixture in fixtures.as_array().unwrap() {
+        let id = fixture["id"].as_str().unwrap();
+        let pii: Vec<String> = serde_json::from_value(fixture["pii"].clone()).unwrap();
+        let identifiers: Vec<String> =
+            serde_json::from_value(fixture["identifiers"].clone()).unwrap();
+        let masked = mask(
+            fixture["pasted"].as_str().unwrap(),
+            &form,
+            &Answers::new(),
+            &[],
+        );
+        let removed: Vec<&String> = pii
+            .iter()
+            .filter(|personal| !masked.text().contains(personal.as_str()))
+            .collect();
+        assert_eq!(
+            removed,
+            identifiers.iter().collect::<Vec<_>>(),
+            "{id}: {}",
+            masked.text()
+        );
+    }
+}
+
 #[test]
 fn each_recording_reads_as_its_fixture_expects() {
     let form = form("payment-order-goods").unwrap();

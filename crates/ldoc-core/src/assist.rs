@@ -54,6 +54,7 @@ pub enum MaskCategory {
     Address,
     Account,
     Plate,
+    Email,
     /// A word the person masked, whatever it is.
     Other,
 }
@@ -70,6 +71,7 @@ impl MaskCategory {
             MaskCategory::Address => "주소",
             MaskCategory::Account => "계좌번호",
             MaskCategory::Plate => "차량번호",
+            MaskCategory::Email => "전자우편",
             MaskCategory::Other => "가린말",
         }
     }
@@ -143,32 +145,55 @@ const COMPANY: &str = r"(?:주식회사|\(\s*주\s*\)|㈜)";
 static COMPANY_FORM: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(COMPANY).expect("a valid pattern"));
 
+/// Marks a number is written with that do not change it: `02-000-0000`,
+/// `02 000 0000`, `02.000.0000` and `(02) 000-0000` are one number.
+const NUMBER_MARKS: [char; 4] = ['-', '.', '(', ')'];
+
 /// `(주)가나푸드`, `㈜ 가나 푸드` and `가나푸드 주식회사` all name 주식회사 가나푸드.
 fn spelling_free(value: &str) -> String {
     COMPANY_FORM
         .replace_all(value, "")
         .chars()
-        .filter(|c| !c.is_whitespace())
+        .filter(|c| !c.is_whitespace() && !NUMBER_MARKS.contains(c))
         .collect()
 }
 
-/// Finds `value` however it is spaced and whichever company form it carries.
+/// Whether a word the person adds can be masked. One letter cannot: it
+/// would mask the same letter in every other word too.
+pub fn maskable(word: &str) -> bool {
+    spelling_free(word).chars().count() >= 2
+}
+
+/// Finds `value` however it is spaced, whichever company form it carries,
+/// and whichever marks separate its digits.
 fn spellings_of(value: &str) -> Option<Regex> {
-    let bare = spelling_free(value);
-    if bare.chars().count() < 2 {
+    if !maskable(value) {
         return None;
     }
+    let bare = spelling_free(value);
     let body: Vec<String> = bare
         .chars()
         .map(|c| regex::escape(&c.to_string()))
         .collect();
-    let body = body.join(r"\s*");
+    let body = body.join(r"[\s\-.()]*");
     Regex::new(&format!(r"(?:{COMPANY}\s*)?{body}(?:\s*{COMPANY})?")).ok()
 }
 
-/// Digits joined by hyphens or dots: one candidate identifier.
-static NUMBER: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\d+(?:[-.]\d+)*").expect("a valid pattern"));
+/// Digits joined by hyphens, dots or single spaces, after an optional area
+/// code in parentheses: one candidate identifier, `(02) 1234-5678` or
+/// `010 1234 5678`.
+static NUMBER: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:\([0-9]{2,4}\) ?)?[0-9]+(?:[-. ][0-9]+)*").expect("a valid pattern")
+});
+
+/// Digits joined by hyphens or dots only: the parts of a candidate that
+/// joined more than one number by spaces.
+static HYPHENATED: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"[0-9]+(?:[-.][0-9]+)*").expect("a valid pattern"));
+
+static EMAIL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+").expect("a valid pattern")
+});
 
 static PLATE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -178,9 +203,12 @@ static PLATE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// What a run of digits is, by the lengths of its groups. Dates, amounts and
-/// short numbers are none of these.
+/// short numbers are none of these. Account covers card numbers too.
 fn classify_number(number: &str) -> Option<MaskCategory> {
-    let groups: Vec<&str> = number.split(['-', '.']).collect();
+    let groups: Vec<&str> = number
+        .split(|c: char| !c.is_ascii_digit())
+        .filter(|group| !group.is_empty())
+        .collect();
     let lengths: Vec<usize> = groups.iter().map(|group| group.len()).collect();
     let digits: usize = lengths.iter().sum();
     let all: String = groups.concat();
@@ -193,10 +221,26 @@ fn classify_number(number: &str) -> Option<MaskCategory> {
         }),
         [3, 2, 5] => Some(MaskCategory::BusinessNo),
         [2 | 3, 3 | 4, 4] if starts_with_zero => Some(MaskCategory::Phone),
-        [10 | 11] if all.starts_with("01") => Some(MaskCategory::Phone),
-        _ if groups.len() >= 2 && (10..=14).contains(&digits) => Some(MaskCategory::Account),
-        [10..=14] => Some(MaskCategory::Account),
+        [9..=11] if starts_with_zero => Some(MaskCategory::Phone),
+        _ if groups.len() >= 2 && (10..=16).contains(&digits) => Some(MaskCategory::Account),
+        [10..=16] => Some(MaskCategory::Account),
         _ => None,
+    }
+}
+
+/// Identifiers in one candidate run of digits. A run that spaces join is
+/// one identifier only when it reads as one and holds no date; otherwise
+/// each hyphenated part stands alone, so `2026-03-02 1000박스` stays.
+fn identifiers_in(run: &str) -> Vec<(usize, usize, MaskCategory)> {
+    let holds_a_date = HYPHENATED
+        .find_iter(run)
+        .any(|part| parse_date(part.as_str()).is_some());
+    match classify_number(run).filter(|_| !holds_a_date) {
+        Some(category) => vec![(0, run.len(), category)],
+        None => HYPHENATED
+            .find_iter(run)
+            .filter_map(|part| Some((part.start(), part.end(), classify_number(part.as_str())?)))
+            .collect(),
     }
 }
 
@@ -246,9 +290,12 @@ pub fn mask(text: &str, form: &Form, answers: &Answers, extra: &[String]) -> Mas
     for found in PLATE.find_iter(text) {
         spans.push(pattern(found.start(), found.end(), MaskCategory::Plate));
     }
-    for found in NUMBER.find_iter(text) {
-        if let Some(category) = classify_number(found.as_str()) {
-            spans.push(pattern(found.start(), found.end(), category));
+    for found in EMAIL.find_iter(text) {
+        spans.push(pattern(found.start(), found.end(), MaskCategory::Email));
+    }
+    for run in NUMBER.find_iter(text) {
+        for (start, end, category) in identifiers_in(run.as_str()) {
+            spans.push(pattern(run.start() + start, run.start() + end, category));
         }
     }
     for word in extra {
@@ -746,16 +793,54 @@ mod tests {
             ("계좌 110-123-456789", "계좌 ⟦계좌번호1⟧"),
             ("차량 12가3456", "차량 ⟦차량번호1⟧"),
             ("차량 서울 123나 4567", "차량 서울 ⟦차량번호1⟧"),
+            ("휴대폰 010 1234 5678", "휴대폰 ⟦전화번호1⟧"),
+            ("사무실 (02) 1234-5678", "사무실 ⟦전화번호1⟧"),
+            ("사무실 02 000 0000", "사무실 ⟦전화번호1⟧"),
+            ("사무실 021234567", "사무실 ⟦전화번호1⟧"),
+            ("주민번호 900101 1234567", "주민번호 ⟦주민등록번호1⟧"),
+            ("계좌 110 123 456789", "계좌 ⟦계좌번호1⟧"),
+            ("계좌 123456789012345", "계좌 ⟦계좌번호1⟧"),
+            ("카드 1234-5678-9012-3456", "카드 ⟦계좌번호1⟧"),
+            ("카드 1234 5678 9012 3456", "카드 ⟦계좌번호1⟧"),
+            ("메일 kim.gana@example.co.kr 로", "메일 ⟦전자우편1⟧ 로"),
         ];
-        for (text, expected) in cases {
-            assert_eq!(masked(text).text(), expected, "{text:?}");
-        }
+        let wrong: Vec<String> = cases
+            .iter()
+            .filter_map(|(text, expected)| {
+                let got = masked(text).text().to_string();
+                (got != *expected).then(|| format!("{text:?} gave {got:?}"))
+            })
+            .collect();
+        assert!(wrong.is_empty(), "{wrong:#?}");
     }
 
     #[test]
     fn dates_and_amounts_are_not_identifiers() {
-        let text = "2026-03-02에 10,000,000원, 2026. 3. 31.까지 3,000,000원";
+        let text = "2026-03-02에 10,000,000원, 2026. 3. 31.까지 3,000,000원, \
+                    기간 2026-03-02 2026-03-31, 2026-03-02 1000박스";
         assert_eq!(masked(text).text(), text);
+    }
+
+    #[test]
+    fn a_personal_number_is_masked_however_the_text_separates_it() {
+        let form = crate::docs::form("payment-order-goods").unwrap();
+        let given = answers(&[("creditor_phone", "02-000-0000")]);
+        let wrong: Vec<String> = ["전화 02-000-0000", "전화 02 000 0000", "전화 02.000.0000"]
+            .iter()
+            .filter_map(|text| {
+                let got = mask(text, &form, &given, &[]).text().to_string();
+                (got != "전화 {{ creditor_phone }}").then(|| format!("{text:?} gave {got:?}"))
+            })
+            .collect();
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn a_word_of_one_letter_cannot_be_masked() {
+        assert!(!maskable("김"));
+        assert!(!maskable("(주)가"));
+        assert!(maskable("김가"));
+        assert!(maskable("02"));
     }
 
     #[test]

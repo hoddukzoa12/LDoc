@@ -63,6 +63,10 @@ pub enum AssistError {
     UnknownDocument,
     /// The id is not the preview the person last saw, so it was not approved.
     NotApproved,
+    /// A word the person added is one letter, which cannot be masked alone.
+    WordTooShort {
+        word: String,
+    },
 }
 
 /// The one masked text awaiting approval. A newer preview replaces it, and
@@ -105,20 +109,11 @@ pub fn assist_preview(
     answers: Answers,
     extra_masks: Vec<String>,
 ) -> Result<MaskPreview, AssistError> {
-    let form = ldoc_core::form(&doc).ok_or(AssistError::UnknownDocument)?;
-    let masked = ldoc_core::mask(&text, &form, &answers, &extra_masks);
-    let offered = ldoc_core::open_fields(&form, &answers);
-    let mut session = assist.0.lock().expect("the assist session");
-    session.issued += 1;
-    let text_id = format!("text-{}", session.issued);
-    let preview = masked.preview(text_id.clone());
-    session.pending = Some(Pending {
-        text_id,
-        doc,
-        masked,
-        offered,
-    });
-    Ok(preview)
+    assist
+        .0
+        .lock()
+        .expect("the assist session")
+        .preview(&text, doc, &answers, &extra_masks)
 }
 
 /// Sends the approved text, and only that, as one fill turn.
@@ -128,38 +123,74 @@ pub fn assist_run(
     plan: TurnPlan,
     approved_text_id: String,
 ) -> Result<AssistRun, AssistError> {
-    let mut session = assist.0.lock().expect("the assist session");
-    let TurnPlan::Fill { doc } = plan;
-    let pending = match session.pending.take() {
-        Some(pending) if pending.text_id == approved_text_id && pending.doc == doc => pending,
-        other => {
-            session.pending = other;
-            return Err(AssistError::NotApproved);
+    assist
+        .0
+        .lock()
+        .expect("the assist session")
+        .run(plan, &approved_text_id)
+}
+
+impl Session {
+    /// Masks the text and makes it the one preview awaiting approval. A word
+    /// too short to mask refuses the preview and leaves the shown one pending.
+    fn preview(
+        &mut self,
+        text: &str,
+        doc: String,
+        answers: &Answers,
+        extra_masks: &[String],
+    ) -> Result<MaskPreview, AssistError> {
+        let form = ldoc_core::form(&doc).ok_or(AssistError::UnknownDocument)?;
+        if let Some(word) = extra_masks.iter().find(|word| !ldoc_core::maskable(word)) {
+            return Err(AssistError::WordTooShort { word: word.clone() });
         }
-    };
-    session.issued += 1;
-    let turn = format!("turn-{}", session.issued);
-    let request = TurnRequest::Fill {
-        id: turn.clone(),
-        model: MODEL.to_string(),
-        doc,
-        text: pending.masked.text().to_string(),
-        fields: pending.offered.clone(),
-    };
-    let body = serde_json::to_string(&request).expect("a turn request serializes");
-    session.sent.insert(
-        turn.clone(),
-        vec![SentBody {
-            to: "openai".to_string(),
-            body,
-            request: request.clone(),
-        }],
-    );
-    let result = replay(&request);
-    Ok(AssistRun {
-        outcome: ldoc_core::outcome(result, &pending.masked, &pending.offered),
-        turn,
-    })
+        let masked = ldoc_core::mask(text, &form, answers, extra_masks);
+        let offered = ldoc_core::open_fields(&form, answers);
+        self.issued += 1;
+        let text_id = format!("text-{}", self.issued);
+        let preview = masked.preview(text_id.clone());
+        self.pending = Some(Pending {
+            text_id,
+            doc,
+            masked,
+            offered,
+        });
+        Ok(preview)
+    }
+
+    fn run(&mut self, plan: TurnPlan, approved_text_id: &str) -> Result<AssistRun, AssistError> {
+        let TurnPlan::Fill { doc } = plan;
+        let pending = match self.pending.take() {
+            Some(pending) if pending.text_id == approved_text_id && pending.doc == doc => pending,
+            other => {
+                self.pending = other;
+                return Err(AssistError::NotApproved);
+            }
+        };
+        self.issued += 1;
+        let turn = format!("turn-{}", self.issued);
+        let request = TurnRequest::Fill {
+            id: turn.clone(),
+            model: MODEL.to_string(),
+            doc,
+            text: pending.masked.text().to_string(),
+            fields: pending.offered.clone(),
+        };
+        let body = serde_json::to_string(&request).expect("a turn request serializes");
+        self.sent.insert(
+            turn.clone(),
+            vec![SentBody {
+                to: "openai".to_string(),
+                body,
+                request: request.clone(),
+            }],
+        );
+        let result = replay(&request);
+        Ok(AssistRun {
+            outcome: ldoc_core::outcome(result, &pending.masked, &pending.offered),
+            turn,
+        })
+    }
 }
 
 #[tauri::command]
@@ -237,6 +268,48 @@ mod tests {
         let result = replay(&fill("거래명세서\n합계: 1,000만 원"));
         assert_eq!(result.id, "turn-1");
         assert!(matches!(result.end, TurnEnd::Proposed { .. }));
+    }
+
+    const DOC: &str = "payment-order-goods";
+    const CONTRACT: &str = "물품공급계약서\n공급자 주식회사 가나푸드 (대표이사 김가나)";
+
+    fn plan() -> TurnPlan {
+        TurnPlan::Fill { doc: DOC.into() }
+    }
+
+    #[test]
+    fn only_the_latest_preview_is_approved_and_it_carries_the_new_mask() {
+        let mut session = Session::default();
+        let answers = Answers::new();
+        let earlier = session
+            .preview(CONTRACT, DOC.into(), &answers, &[])
+            .unwrap();
+        let latest = session
+            .preview(CONTRACT, DOC.into(), &answers, &["김가나".into()])
+            .unwrap();
+        assert!(matches!(
+            session.run(plan(), &earlier.text_id),
+            Err(AssistError::NotApproved)
+        ));
+        let run = session.run(plan(), &latest.text_id).unwrap();
+        let sent = &session.sent[&run.turn];
+        assert_eq!(sent.len(), 1);
+        assert!(!sent[0].body.contains("김가나"), "{}", sent[0].body);
+        assert!(sent[0].body.contains("⟦가린말1⟧"), "{}", sent[0].body);
+    }
+
+    #[test]
+    fn a_one_letter_word_is_refused_and_the_shown_preview_stays_approvable() {
+        let mut session = Session::default();
+        let answers = Answers::new();
+        let shown = session
+            .preview(CONTRACT, DOC.into(), &answers, &[])
+            .unwrap();
+        assert!(matches!(
+            session.preview(CONTRACT, DOC.into(), &answers, &["김".into()]),
+            Err(AssistError::WordTooShort { word }) if word == "김"
+        ));
+        assert!(session.run(plan(), &shown.text_id).is_ok());
     }
 
     #[test]
