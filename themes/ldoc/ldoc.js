@@ -433,6 +433,76 @@ export const ldocTheme = {
       "base": {
         "padding": "var(--spacing-3)"
       }
+    },
+    "checkbox-indicator": {
+      "base": {
+        "--color-border-emphasized": "#8a8a8a"
+      }
+    },
+    "radio-indicator": {
+      "base": {
+        "--color-border-emphasized": "#8a8a8a"
+      }
+    },
+    "text-input": {
+      "base": {
+        "--color-border-emphasized": "#8a8a8a"
+      }
+    },
+    "text-area": {
+      "base": {
+        "--color-border-emphasized": "#8a8a8a"
+      }
+    },
+    "number-input": {
+      "base": {
+        "--color-border-emphasized": "#8a8a8a"
+      }
+    },
+    "date-input": {
+      "base": {
+        "--color-border-emphasized": "#8a8a8a"
+      }
+    },
+    "time-input": {
+      "base": {
+        "--color-border-emphasized": "#8a8a8a"
+      }
+    },
+    "date-time-input": {
+      "base": {
+        "--color-border-emphasized": "#8a8a8a"
+      }
+    },
+    "date-range-input": {
+      "base": {
+        "--color-border-emphasized": "#8a8a8a"
+      }
+    },
+    "selector": {
+      "base": {
+        "--color-border-emphasized": "#8a8a8a"
+      }
+    },
+    "multi-selector": {
+      "base": {
+        "--color-border-emphasized": "#8a8a8a"
+      }
+    },
+    "complex-selector": {
+      "base": {
+        "--color-border-emphasized": "#8a8a8a"
+      }
+    },
+    "typeahead": {
+      "base": {
+        "--color-border-emphasized": "#8a8a8a"
+      }
+    },
+    "tokenizer": {
+      "base": {
+        "--color-border-emphasized": "#8a8a8a"
+      }
     }
   },
   __onDark: {

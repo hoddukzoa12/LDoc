@@ -597,8 +597,9 @@ fn value_of(kind: &FieldKind, source: &str) -> Option<Answer> {
 
 /// What the harness process is asked to do: one turn, one request. Only the
 /// masked text and the open fields go in.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(export)]
 pub enum TurnRequest {
     Fill {
         id: String,

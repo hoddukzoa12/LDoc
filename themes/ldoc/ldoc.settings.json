@@ -12,6 +12,20 @@
       "thing": "accent",
       "value": "#24508F",
       "source": "dial"
+    },
+    {
+      "thing": "--color-border-emphasized",
+      "value": "#8a8a8a",
+      "source": "token",
+      "on": "checks",
+      "note": "feeds border-color on checkbox-indicator"
+    },
+    {
+      "thing": "--color-border-emphasized",
+      "value": "#8a8a8a",
+      "source": "token",
+      "on": "inputs",
+      "note": "feeds border-color on text-input, box-shadow on text-input (when :hover:not(:focus-within))"
     }
   ],
   "lifted": [],

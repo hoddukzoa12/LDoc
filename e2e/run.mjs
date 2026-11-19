@@ -45,6 +45,7 @@ try {
   await answerForm();
   await editDraft();
   const paragraphs = await exportDraft();
+  await leaveEditedDraft();
   assert.ok(
     paragraphs.some((paragraph) => paragraph.text.includes(CLAIM)),
     "the exported DOCX lacks the claim sentence",
@@ -118,6 +119,14 @@ async function fillFromPaste() {
   await (await find('[data-action="approve"]')).click();
   await find('[data-assist="done"]');
   await (await find('[data-action="show-sent"]')).click();
+  const sentView = await find('[data-assist="sent"]');
+  const readable = await sentView.getAttribute("textContent");
+  await driver.executeScript("arguments[0].scrollIntoView()", sentView);
+  await screenshot("assist-sent.png");
+  for (const personal of pasted.pii) {
+    assert.ok(!readable.includes(personal), `${personal} is shown as sent`);
+  }
+  await (await find('[data-action="show-raw"]')).click();
   const sent = await (await find("[data-sent]")).getAttribute("textContent");
   writeFileSync(join(out, "assist-sent.json"), sent);
   assert.ok(sent.includes("⟦") && sent.includes("물품공급계약서"), "the sent body is not the masked contract");
@@ -127,6 +136,7 @@ async function fillFromPaste() {
   for (const field of JSON.parse(sent).fields.filter((field) => field.sensitivity === "pii")) {
     assert.equal(field.help, null, `the help text of ${field.id} left the device`);
   }
+  await (await find('[data-action="show-raw"]')).click();
 }
 
 /** Accepts every candidate on the step except the one for LEFT_EMPTY, which it dismisses. */
@@ -136,7 +146,10 @@ async function decideCandidates(accepted) {
     if (notes.length === 0) return;
     const id = await notes[0].getAttribute("data-candidate");
     const action = id === LEFT_EMPTY ? "dismiss" : "accept";
-    await (await notes[0].findElement(By.css(`[data-action="${action}"]`))).click();
+    const button = await notes[0].findElement(By.css(`[data-action="${action}"]`));
+    // A button half under the form footer counts as in view, so WebDriver would not scroll to it.
+    await driver.executeScript('arguments[0].scrollIntoView({ block: "center" })', button);
+    await button.click();
     await driver.wait(until.stalenessOf(notes[0]), 15_000, `the ${id} candidate stayed`);
     if (action === "dismiss") continue;
     accepted.add(id);
@@ -196,14 +209,44 @@ async function submit() {
   await (await find('[data-action="next"]')).click();
 }
 
-/** Univer opens with the caret at the start of the document, so the keys land in the title. */
+/**
+ * Leaves an unedited draft without being asked, comes back, then types into
+ * it. Univer opens with the caret at the start of the document, so the keys
+ * land in the title.
+ */
 async function editDraft() {
+  await find("[data-editor-host] canvas");
+  await driver.sleep(2000);
+  await (await find('[data-action="back"]')).click();
+  await find("[data-step]");
+  await submit();
   await find("[data-editor-host] canvas");
   await driver.sleep(2000);
   await screenshot("editor.png");
   await driver.actions().sendKeys(EDIT).perform();
   await driver.sleep(500);
   await screenshot("editor-edited.png");
+}
+
+/** Going back from an edited draft asks first; keeping the edits stays in the editor. */
+async function leaveEditedDraft() {
+  await (await find('[data-action="back"]')).click();
+  await find('[role="alertdialog"]');
+  // The dialog fades in.
+  await driver.sleep(500);
+  await screenshot("editor-leave.png");
+  await (await find(By.xpath('//button[normalize-space()="편집 계속"]'))).click();
+  await driver.wait(
+    async () => {
+      for (const dialog of await driver.findElements(By.css('[role="alertdialog"]'))) {
+        if (await dialog.isDisplayed().catch(() => false)) return false;
+      }
+      return true;
+    },
+    15_000,
+    "the leave dialog stayed open",
+  );
+  await find("[data-editor-host] canvas");
 }
 
 /** Saves through the GTK save dialog, driven with xdotool, and returns the DOCX paragraphs. */
@@ -216,9 +259,8 @@ async function exportDraft() {
   xdotool("key", "ctrl+a");
   xdotool("type", "--delay", "20", target);
   xdotool("key", "Return");
-  const status = await find('[data-export="saved"]');
-  // getText() reads this ellipsized line as empty in WebKitWebDriver.
-  assert.equal(await status.getAttribute("textContent"), `저장했습니다 · ${target}`);
+  const status = await (await find('[data-export="saved"]')).getAttribute("textContent");
+  assert.ok(status.includes("저장했습니다") && status.includes(target), `the saved status reads ${status}`);
   const json = execFileSync(
     "uv",
     ["run", "--quiet", "--with", "python-docx", "python", join(root, "e2e/docx_paragraphs.py"), target],
@@ -232,8 +274,9 @@ function xdotool(...args) {
   return execFileSync("timeout", ["20", "xdotool", ...args], { encoding: "utf8" }).trim();
 }
 
-async function find(css) {
-  return driver.wait(until.elementLocated(By.css(css)), 15_000, `no element matches ${css}`);
+async function find(locator) {
+  const by = typeof locator === "string" ? By.css(locator) : locator;
+  return driver.wait(until.elementLocated(by), 15_000, `no element matches ${locator}`);
 }
 
 async function screenshot(name) {

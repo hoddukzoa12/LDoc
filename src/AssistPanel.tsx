@@ -5,6 +5,7 @@
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Card } from "@astryxdesign/core/Card";
+import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { List, ListItem } from "@astryxdesign/core/List";
 import { Spinner } from "@astryxdesign/core/Spinner";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
@@ -44,6 +45,9 @@ const FAILURES: Record<TurnFailure["why"], string> = {
   no_recording:
     "이 글에 대한 녹화된 응답이 없습니다. 이 빌드는 녹화해 둔 예시 글(계약서, 거래명세서, 문자 대화)에만 응답합니다.",
 };
+
+/** Who a recorded request was addressed to, in words. */
+const RECIPIENTS: Record<string, string> = { openai: "OpenAI" };
 
 /** A placeholder the core put in the masked text: `⟦전화번호1⟧` or `{{ creditor_name }}`. */
 const PLACEHOLDER = /(⟦[^⟧]+⟧|\{\{ [^}]+ \}\})/;
@@ -147,13 +151,7 @@ export function AssistPanel({
               {summary(phase.preview)} 이름, 상호, 주소처럼 아직 보이는 개인정보는 아래에서 더 가리세요.
             </Text>
             <Card variant="muted" padding={3}>
-              <VStack gap={0} data-masked>
-                {phase.preview.masked.split("\n").map((line, index) => (
-                  <Text key={index} type="body" display="block" wordBreak="break-word">
-                    {line === "" ? " " : <MaskedLine line={line} />}
-                  </Text>
-                ))}
-              </VStack>
+              <MaskedText text={phase.preview.masked} />
             </Card>
           </VStack>
 
@@ -257,14 +255,40 @@ export function AssistPanel({
               <Button label="새 글 붙여 넣기" size="sm" variant="ghost" onClick={() => setPhase({ kind: "pasting" })} />
             </HStack>
           ) : (
-            <VStack gap={2}>
-              <Text type="label">이 요청에 담긴 내용</Text>
+            <VStack gap={4} data-assist="sent">
               {phase.sent.map((sent, index) => (
-                <Card key={index} variant="muted" padding={3}>
-                  <Text type="code" display="block" wordBreak="break-all" data-sent>
-                    {sent.body}
-                  </Text>
-                </Card>
+                <VStack key={index} gap={4}>
+                  <VStack gap={1}>
+                    <Text type="label">보낸 내용</Text>
+                    <Text type="supporting" color="secondary">
+                      받는 곳: {RECIPIENTS[sent.to] ?? sent.to}. 담긴 것은 아래 두 가지뿐입니다.
+                      {status?.mode === "replay" && " 이 빌드는 녹화된 응답을 재생하므로 실제로는 보내지 않았습니다."}
+                    </Text>
+                  </VStack>
+                  <VStack gap={2}>
+                    <Text type="label">가린 글</Text>
+                    <Card variant="muted" padding={3}>
+                      <MaskedText text={sent.request.text} />
+                    </Card>
+                  </VStack>
+                  <VStack gap={1}>
+                    <Text type="label">물어본 칸 {sent.request.fields.length}개</Text>
+                    <Text type="supporting" color="secondary">
+                      칸의 이름과 설명입니다. 이미 적은 답은 보내지 않았고, 개인정보 칸은 이름만 보냈습니다.
+                    </Text>
+                    <Text type="body">{sent.request.fields.map((field) => field.label).join(", ")}</Text>
+                  </VStack>
+                  <Collapsible
+                    defaultIsOpen={false}
+                    trigger={<Text type="label" data-action="show-raw">보낸 그대로 보기 (개발자용 JSON)</Text>}
+                  >
+                    <Card variant="muted" padding={3}>
+                      <Text type="code" display="block" wordBreak="break-all" data-sent>
+                        {sent.body}
+                      </Text>
+                    </Card>
+                  </Collapsible>
+                </VStack>
               ))}
               <HStack>
                 <Button label="새 글 붙여 넣기" size="sm" variant="ghost" onClick={() => setPhase({ kind: "pasting" })} />
@@ -297,6 +321,19 @@ function summary(preview: MaskPreview): string {
   const automatic = preview.found.filter((found) => found.by !== "user").length;
   const chosen = preview.found.length - automatic;
   return `자동으로 가린 것 ${automatic}개, 직접 가린 것 ${chosen}개.`;
+}
+
+/** The masked text line by line, as the preview showed it. */
+function MaskedText({ text }: { text: string }) {
+  return (
+    <VStack gap={0} data-masked>
+      {text.split("\n").map((line, index) => (
+        <Text key={index} type="body" display="block" wordBreak="break-word">
+          {line === "" ? " " : <MaskedLine line={line} />}
+        </Text>
+      ))}
+    </VStack>
+  );
 }
 
 /** Shows the placeholders in the masked line apart from the person's own words. */

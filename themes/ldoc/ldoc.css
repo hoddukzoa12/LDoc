@@ -536,6 +536,62 @@
     --astryx-section-padding: var(--spacing-3);
   }
 
+  .astryx-checkbox-indicator {
+    --color-border-emphasized: #8a8a8a;
+  }
+
+  .astryx-radio-indicator {
+    --color-border-emphasized: #8a8a8a;
+  }
+
+  .astryx-text-input {
+    --color-border-emphasized: #8a8a8a;
+  }
+
+  .astryx-text-area {
+    --color-border-emphasized: #8a8a8a;
+  }
+
+  .astryx-number-input {
+    --color-border-emphasized: #8a8a8a;
+  }
+
+  .astryx-date-input {
+    --color-border-emphasized: #8a8a8a;
+  }
+
+  .astryx-time-input {
+    --color-border-emphasized: #8a8a8a;
+  }
+
+  .astryx-date-time-input {
+    --color-border-emphasized: #8a8a8a;
+  }
+
+  .astryx-date-range-input {
+    --color-border-emphasized: #8a8a8a;
+  }
+
+  .astryx-selector {
+    --color-border-emphasized: #8a8a8a;
+  }
+
+  .astryx-multi-selector {
+    --color-border-emphasized: #8a8a8a;
+  }
+
+  .astryx-complex-selector {
+    --color-border-emphasized: #8a8a8a;
+  }
+
+  .astryx-typeahead {
+    --color-border-emphasized: #8a8a8a;
+  }
+
+  .astryx-tokenizer {
+    --color-border-emphasized: #8a8a8a;
+  }
+
   .astryx-text[data-color="primary"] { color: var(--color-text-primary); }
 
   .astryx-heading[data-color="primary"] { color: var(--color-text-primary); }

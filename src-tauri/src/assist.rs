@@ -46,12 +46,14 @@ pub struct AssistRun {
     pub outcome: TurnOutcome,
 }
 
-/// One request body as it would have left the device.
+/// One request body as it would have left the device, and the same request
+/// as fields, so the screen can say in words what it held.
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export)]
 pub struct SentBody {
     pub to: String,
     pub body: String,
+    pub request: TurnRequest,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -150,6 +152,7 @@ pub fn assist_run(
         vec![SentBody {
             to: "openai".to_string(),
             body,
+            request: request.clone(),
         }],
     );
     let result = replay(&request);

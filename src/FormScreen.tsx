@@ -23,9 +23,12 @@ import type { Answer } from "./bindings/Answer";
 import type { Field } from "./bindings/Field";
 import type { Answers } from "./ipc";
 
-/** The form column, and the rail and side panel beside it, as in the form-wizard-vertical template. */
+/** The form column, as in the form-wizard-vertical template. */
 const MEASURE = 640;
-const PANEL_WIDTH = 300;
+/** The step rail, as wide as its longest line ("확인이 필요한 항목이 있습니다.") needs. */
+const RAIL_WIDTH = 240;
+/** The assist panel, wide enough to read a pasted contract line by line before approving it. */
+const ASSIST_WIDTH = 400;
 
 /** The field is asked while the answer to its condition's field is, or includes, one of the values. */
 export function isShown(field: Field, answers: Answers): boolean {
@@ -81,8 +84,8 @@ export function FormScreen({
         </LayoutHeader>
       }
       start={
-        <LayoutPanel width={PANEL_WIDTH} role="navigation" label="작성 단계">
-          <Stepper activeStep={step} orientation="vertical" onStepClick={goTo} label="작성 단계">
+        <LayoutPanel width={RAIL_WIDTH} role="navigation" label="작성 단계">
+          <Stepper activeStep={step} orientation="vertical" indicatorPosition="on-track" onStepClick={goTo} label="작성 단계">
             {form.steps.map((candidate, index) => {
               const invalid = candidate.fields.some((field) => errorOf(field.id) !== undefined);
               const waiting = candidate.fields.filter(
@@ -105,7 +108,7 @@ export function FormScreen({
         </LayoutPanel>
       }
       end={
-        <LayoutPanel width={PANEL_WIDTH} hasDivider role="complementary" label="붙여 넣은 글로 채우기">
+        <LayoutPanel width={ASSIST_WIDTH} hasDivider role="complementary" label="붙여 넣은 글로 채우기">
           {side}
         </LayoutPanel>
       }
@@ -196,22 +199,34 @@ function CandidateNote({
   onDismiss: () => void;
 }) {
   return (
-    <Card variant="blue" padding={3} data-candidate={field.id}>
-      <VStack gap={2}>
-        <VStack gap={0.5}>
-          <Text type="supporting">붙여 넣은 글에서 찾은 후보</Text>
-          <Text type="body" weight="semibold">
-            {shownValue(field, candidate.value)}
-          </Text>
-          <Text type="supporting" color="secondary">
-            근거: “{candidate.quoted}”
-          </Text>
-        </VStack>
+    <Card variant="muted" padding={3} data-candidate={field.id}>
+      <HStack gap={3} vAlign="center">
+        <StackItem size="fill">
+          <VStack gap={0.5}>
+            <Text type="supporting">붙여 넣은 글에서 찾은 후보</Text>
+            <Text type="body" weight="semibold">
+              {shownValue(field, candidate.value)}
+            </Text>
+            <Text type="supporting" color="secondary">
+              근거: “{candidate.quoted}”
+            </Text>
+          </VStack>
+        </StackItem>
         <HStack gap={2}>
-          <Button label="받아들이기" size="sm" data-action="accept" onClick={onAccept} />
-          <Button label="버리기" size="sm" variant="ghost" data-action="dismiss" onClick={onDismiss} />
+          <Button label={`${field.label} 후보 받아들이기`} size="sm" data-action="accept" onClick={onAccept}>
+            받아들이기
+          </Button>
+          <Button
+            label={`${field.label} 후보 버리기`}
+            size="sm"
+            variant="ghost"
+            data-action="dismiss"
+            onClick={onDismiss}
+          >
+            버리기
+          </Button>
         </HStack>
-      </VStack>
+      </HStack>
     </Card>
   );
 }
@@ -254,7 +269,7 @@ function FieldInput({
       );
     case "choice":
       return (
-        <RadioList {...common} value={text} onChange={onAnswer}>
+        <RadioList {...common} size="sm" value={text} onChange={onAnswer}>
           {kind.options.map((option) => (
             <RadioListItem key={option.value} value={option.value} label={option.label} data-value={option.value} />
           ))}
