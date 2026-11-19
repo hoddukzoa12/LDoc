@@ -1,0 +1,24 @@
+{
+  "enabledPlugins": {
+    "impeccable@impeccable": true,
+    "astryx@astryx": true
+  },
+  "extraKnownMarketplaces": {
+    "impeccable": {
+      "source": {
+        "source": "github",
+        "repo": "pbakaus/impeccable"
+      }
+    },
+    "astryx": {
+      "source": {
+        "source": "github",
+        "repo": "meta/astryx",
+        "sparsePaths": [
+          ".claude-plugin",
+          "plugins"
+        ]
+      }
+    }
+  }
+}
