@@ -219,7 +219,7 @@ export function AssistPanel({
           <Banner
             status="success"
             title={`후보 ${phase.offered}개를 찾았습니다`}
-            description="각 칸 옆에 근거와 함께 표시했습니다. 받아들여야 답이 됩니다."
+            description="후보가 있는 단계는 왼쪽 단계 목록에 개수로 표시했습니다. 선택에 따라 나타나는 칸의 후보는 그 칸이 보일 때 나옵니다. 받아들여야 답이 됩니다."
           />
           {phase.rejected.length > 0 && (
             <VStack gap={2}>
