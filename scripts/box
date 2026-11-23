@@ -5,11 +5,9 @@
 #   scripts/box sync          copy the working tree to the sandbox
 #   scripts/box run <cmd...>  sync, then run a shell command in the project
 #   scripts/box test          sync, then run every check (pnpm run check)
-#   scripts/box build         sync, then build the desktop app
-#   scripts/box e2e           sync, build, drive the real app, pull e2e-out/
-#   scripts/box demo          the same run, slowed down and filmed into e2e-out/demo.mp4
-#   scripts/box icons         generate the app icons from assets/icon.svg and copy them back
-#   scripts/box fmt           format the Rust code on the sandbox and copy it back
+#   scripts/box build         sync, then build the page
+#   scripts/box e2e           sync, build, drive the page through every mode, pull e2e-out/
+#   scripts/box demo          sync, build, film the scripted run into e2e-out/blanks.mp4
 #   scripts/box pull <path>   copy a file or directory back, relative to the project
 #   scripts/box down          pause the sandbox
 set -euo pipefail
@@ -45,7 +43,7 @@ sync() {
   [ "$(box_state)" = Running ] || up
   # Build caches stay on the sandbox. Everything else is replaced so deleted
   # files do not linger there.
-  instabox exec "$BOX" -- "mkdir -p ~/$REMOTE_DIR && find ~/$REMOTE_DIR -mindepth 1 -maxdepth 1 ! -name target ! -name node_modules ! -name e2e-out -exec rm -rf {} +"
+  instabox exec "$BOX" -- "mkdir -p ~/$REMOTE_DIR && find ~/$REMOTE_DIR -mindepth 1 -maxdepth 1 ! -name node_modules ! -name e2e-out -exec rm -rf {} +"
   instabox push "$BOX" "$ROOT/" "$REMOTE_DIR" --all >/dev/null
 }
 
@@ -60,22 +58,10 @@ pull() {
   instabox pull "$BOX" "$REMOTE_DIR/$path" "$ROOT/$path" >/dev/null
 }
 
-pull_lockfiles() {
-  pull Cargo.lock
-  pull pnpm-lock.yaml
-}
-
-# The checks regenerate the TypeScript bindings and the adapter test fixture.
-pull_generated() {
-  pull_lockfiles
-  pull src/bindings
-  pull src/fixtures
-}
-
 # Pulls e2e-out/ whether or not the run passed, then exits with the run's code.
 drive() {
   local status=0
-  run "pnpm install && pnpm tauri build --no-bundle && pnpm run $1" || status=$?
+  run "pnpm run $1" || status=$?
   pull e2e-out
   return "$status"
 }
@@ -87,13 +73,11 @@ case "$command" in
   up) up ;;
   sync) sync ;;
   run) sync && run "$@" ;;
-  test) sync && run 'pnpm install && pnpm run check' && pull_generated ;;
-  build) sync && run 'pnpm install && pnpm tauri build --no-bundle' && pull_lockfiles ;;
+  test) sync && run 'pnpm install && pnpm run check' && pull pnpm-lock.yaml ;;
+  build) sync && run 'pnpm install && pnpm run build' && pull pnpm-lock.yaml ;;
   e2e) sync && drive e2e ;;
   demo) sync && drive demo ;;
-  icons) sync && run 'pnpm install && pnpm tauri icon assets/icon.svg && rm -rf src-tauri/icons/android src-tauri/icons/ios' && pull src-tauri/icons ;;
-  fmt) sync && run 'cargo fmt' && pull crates && pull src-tauri/src ;;
   pull) pull "$1" ;;
   down) instabox suspend "$BOX" ;;
-  *) sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  *) sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

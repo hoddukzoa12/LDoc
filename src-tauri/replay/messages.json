@@ -1,9 +1,0 @@
-{
-  "anchor": "[문자 대화]",
-  "note": "the model swaps the total and the amount already paid; both are readable, so only the quoted source and the person's check catch it",
-  "answers": [
-    { "field": "total", "find": "지난번에 (.+?) 보냈고" },
-    { "field": "paid", "find": "대금 (.+?) 중" },
-    { "field": "due_on", "find": "(\\d{4}\\. \\d+\\. \\d+\\.)까지" }
-  ]
-}
