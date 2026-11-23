@@ -1,7 +1,8 @@
 //! The first piece of the AI assistant: filling the form from pasted text.
-//! The core masks the text before anything leaves the device and reads the
-//! values a model points at. It knows nothing of models, networks or the
-//! harness process. Types follow docs/harness-sketch.ts.
+//! The core masks the text as far as the person's setting asks before it
+//! leaves the device, and reads the values a model points at. It knows
+//! nothing of models, networks or the harness process. Types follow
+//! docs/harness-sketch.ts.
 
 use crate::form::{Answer, Answers, Field, FieldKind, Form, parse_date};
 use crate::money::Won;
@@ -77,6 +78,33 @@ impl MaskCategory {
     }
 }
 
+/// How much of a pasted text is hidden before it leaves. The person's setting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum Masking {
+    /// The text goes as pasted.
+    Off,
+    /// Identifier formats (registration numbers, phones, accounts, plates,
+    /// e-mail) are masked without asking. Names, trade names and addresses
+    /// go as written. The default.
+    #[default]
+    Identifiers,
+    /// The person sees the masked text, may mask more words, and approves
+    /// exactly what leaves. Answers already in personal fields are masked too.
+    Reviewed,
+}
+
+impl Masking {
+    fn hides(self, by: MaskSource) -> bool {
+        match self {
+            Masking::Off => false,
+            Masking::Identifiers => by == MaskSource::Pattern,
+            Masking::Reviewed => true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
@@ -117,9 +145,14 @@ pub struct MaskedText {
 }
 
 impl MaskedText {
-    /// The text that may leave the device once approved.
+    /// The text that may leave the device.
     pub fn text(&self) -> &str {
         &self.text
+    }
+
+    /// What the text hides, one entry per placeholder.
+    pub fn found(&self) -> &[Masked] {
+        &self.found
     }
 
     pub fn preview(&self, text_id: String) -> MaskPreview {
@@ -261,11 +294,19 @@ struct Span {
     field: Option<String>,
 }
 
-/// Masks personal answers already given, identifiers recognised by shape,
-/// and the words the person chose. An answer's value becomes its field's
-/// placeholder, `{{ creditor_name }}`; anything else becomes a numbered
-/// placeholder such as `⟦전화번호1⟧`, the same one each time it recurs.
-pub fn mask(text: &str, form: &Form, answers: &Answers, extra: &[String]) -> MaskedText {
+/// Masks what the level hides: personal answers already given, identifiers
+/// recognised by shape, and the words the person chose. `Off` hides nothing,
+/// `Identifiers` only the identifiers, `Reviewed` all three. An answer's
+/// value becomes its field's placeholder, `{{ creditor_name }}`; anything
+/// else becomes a numbered placeholder such as `⟦전화번호1⟧`, the same one
+/// each time it recurs.
+pub fn mask(
+    text: &str,
+    form: &Form,
+    answers: &Answers,
+    masking: Masking,
+    extra: &[String],
+) -> MaskedText {
     let mut spans = Vec::new();
 
     for field in form.steps.iter().flat_map(|step| &step.fields) {
@@ -313,6 +354,7 @@ pub fn mask(text: &str, form: &Form, answers: &Answers, extra: &[String]) -> Mas
         }
     }
 
+    spans.retain(|span| masking.hides(span.by));
     // Earliest first, then the longest, then answers before patterns before
     // the person's words. A span inside one already taken is dropped.
     spans.sort_by_key(|span| {
@@ -489,8 +531,22 @@ pub enum Rejection {
     ValueUnreadable,
 }
 
-/// A proposed answer after the core read it. A readable one waits beside
-/// its field until the person accepts it.
+/// Where in the pasted text a readable value came from.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(tag = "by", rename_all = "snake_case")]
+#[ts(export)]
+pub enum Source {
+    /// The model picked one of the field's choices, which quotes nothing.
+    Choice,
+    /// Part of the text, as the person wrote it, placeholders restored.
+    Quote { text: String },
+    /// A masked value, put back on this device. The model saw only its
+    /// placeholder.
+    Restored { text: String },
+}
+
+/// A proposed answer after the core read it. The screen fills an empty
+/// field with a readable one, or keeps it beside its field for the person.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(tag = "status", rename_all = "snake_case")]
 #[ts(export)]
@@ -498,10 +554,7 @@ pub enum Candidate {
     Readable {
         field: String,
         value: Answer,
-        /// The source as the person wrote it, placeholders restored. None
-        /// when the model picked one of the field's choices, which quotes
-        /// nothing from the text.
-        quoted: Option<String>,
+        source: Source,
     },
     Rejected {
         field: String,
@@ -521,10 +574,10 @@ pub fn resolve(
         .map(|answer| {
             let field = answer.field.clone();
             match read(masked, offered, answer) {
-                Ok((value, quoted)) => Candidate::Readable {
+                Ok((value, source)) => Candidate::Readable {
                     field,
                     value,
-                    quoted,
+                    source,
                 },
                 Err(reason) => Candidate::Rejected { field, reason },
             }
@@ -536,19 +589,20 @@ fn read(
     masked: &MaskedText,
     offered: &[FieldSpec],
     answer: &ProposedAnswer,
-) -> Result<(Answer, Option<String>), Rejection> {
+) -> Result<(Answer, Source), Rejection> {
     let spec = offered
         .iter()
         .find(|spec| spec.id == answer.field)
         .ok_or(Rejection::FieldNotOffered)?;
-    let source = match &answer.pointer {
+    let read_value = |text: &str| value_of(&spec.kind, text).ok_or(Rejection::ValueUnreadable);
+    match &answer.pointer {
         Pointer::Option { value } => {
             let options = options(&spec.kind).ok_or(Rejection::NotAChoice)?;
             let option = options
                 .iter()
                 .find(|option| option.value == *value)
                 .ok_or(Rejection::NotAChoice)?;
-            return Ok((choice_answer(&spec.kind, &option.value), None));
+            Ok((choice_answer(&spec.kind, &option.value), Source::Choice))
         }
         Pointer::Quote { text } => {
             if text.trim().is_empty() {
@@ -573,7 +627,8 @@ fn read(
                 (_, 1) => {}
                 _ => return Err(Rejection::QuoteAmbiguous),
             }
-            masked.restore(text)
+            let text = masked.restore(text);
+            Ok((read_value(&text)?, Source::Quote { text }))
         }
         Pointer::Placeholder { token } => {
             let original = masked
@@ -583,11 +638,14 @@ fn read(
             if !states_whole_value(&spec.kind, "", original, "") {
                 return Err(Rejection::NotWholeValue);
             }
-            original.clone()
+            Ok((
+                read_value(original)?,
+                Source::Restored {
+                    text: original.clone(),
+                },
+            ))
         }
-    };
-    let value = value_of(&spec.kind, &source).ok_or(Rejection::ValueUnreadable)?;
-    Ok((value, Some(source)))
+    }
 }
 
 /// A figure that goes on before the source: a digit, a comma or point right
@@ -778,8 +836,9 @@ mod tests {
             .collect()
     }
 
+    /// The text as the default setting masks it.
     fn masked(text: &str) -> MaskedText {
-        mask(text, &form(), &Answers::new(), &[])
+        mask(text, &form(), &Answers::new(), Masking::default(), &[])
     }
 
     #[test]
@@ -821,6 +880,45 @@ mod tests {
         assert_eq!(masked(text).text(), text);
     }
 
+    /// A text with an identifier, a personal answer already given, and a
+    /// word the person chose, masked at each level.
+    fn masked_at(masking: Masking) -> MaskedText {
+        let given = answers(&[("creditor_name", "주식회사 가나푸드")]);
+        mask(
+            "주식회사 가나푸드 대표 김가나, 주민번호 900101-1234567",
+            &form(),
+            &given,
+            masking,
+            &["김가나".to_string()],
+        )
+    }
+
+    #[test]
+    fn off_hides_nothing() {
+        let masked = masked_at(Masking::Off);
+        assert_eq!(
+            masked.text().as_bytes(),
+            "주식회사 가나푸드 대표 김가나, 주민번호 900101-1234567".as_bytes()
+        );
+        assert!(masked.found().is_empty());
+    }
+
+    #[test]
+    fn identifiers_hide_the_identifiers_and_leave_names_as_written() {
+        assert_eq!(
+            masked_at(Masking::Identifiers).text(),
+            "주식회사 가나푸드 대표 김가나, 주민번호 ⟦주민등록번호1⟧"
+        );
+    }
+
+    #[test]
+    fn reviewed_hides_answers_identifiers_and_the_persons_words() {
+        assert_eq!(
+            masked_at(Masking::Reviewed).text(),
+            "{{ creditor_name }} 대표 ⟦가린말1⟧, 주민번호 ⟦주민등록번호1⟧"
+        );
+    }
+
     #[test]
     fn a_personal_number_is_masked_however_the_text_separates_it() {
         let form = crate::docs::form("payment-order-goods").unwrap();
@@ -828,7 +926,9 @@ mod tests {
         let wrong: Vec<String> = ["전화 02-000-0000", "전화 02 000 0000", "전화 02.000.0000"]
             .iter()
             .filter_map(|text| {
-                let got = mask(text, &form, &given, &[]).text().to_string();
+                let got = mask(text, &form, &given, Masking::Reviewed, &[])
+                    .text()
+                    .to_string();
                 (got != "전화 {{ creditor_phone }}").then(|| format!("{text:?} gave {got:?}"))
             })
             .collect();
@@ -850,7 +950,7 @@ mod tests {
             ("goods", "냉동 수산물"),
         ]);
         let text = "(주)가나푸드, ㈜ 가나 푸드, 가나푸드 주식회사가 냉동 수산물을 공급";
-        let masked = mask(text, &form(), &given, &[]);
+        let masked = mask(text, &form(), &given, Masking::Reviewed, &[]);
         assert_eq!(
             masked.text(),
             "{{ creditor_name }}, {{ creditor_name }}, {{ creditor_name }}가 냉동 수산물을 공급"
@@ -872,6 +972,7 @@ mod tests {
             "김가나가 박한빛에게, 김 가나가 다시",
             &form(),
             &Answers::new(),
+            Masking::Reviewed,
             &extra,
         );
         assert_eq!(masked.text(), "⟦가린말1⟧가 ⟦가린말2⟧에게, ⟦가린말1⟧가 다시");
@@ -905,7 +1006,13 @@ mod tests {
     }
 
     fn resolve_one(text: &str, field: &str, pointer: Pointer) -> Candidate {
-        let masked = mask(text, &form(), &Answers::new(), &["김가나".to_string()]);
+        let masked = mask(
+            text,
+            &form(),
+            &Answers::new(),
+            Masking::Reviewed,
+            &["김가나".to_string()],
+        );
         let offered = open_fields(&form(), &Answers::new());
         let proposed = [ProposedAnswer {
             field: field.into(),
@@ -922,7 +1029,9 @@ mod tests {
         Candidate::Readable {
             field: field.into(),
             value: Answer::One(value.into()),
-            quoted: Some(quoted.into()),
+            source: Source::Quote {
+                text: quoted.into(),
+            },
         }
     }
 
@@ -1049,7 +1158,13 @@ mod tests {
                     token: "⟦가린말1⟧".into()
                 }
             ),
-            readable("creditor_name", "김가나", "김가나")
+            Candidate::Readable {
+                field: "creditor_name".into(),
+                value: Answer::One("김가나".into()),
+                source: Source::Restored {
+                    text: "김가나".into()
+                },
+            }
         );
         assert_eq!(
             resolve_one(
@@ -1099,7 +1214,7 @@ mod tests {
             Candidate::Readable {
                 field: "vat".into(),
                 value: Answer::One("included".into()),
-                quoted: None,
+                source: Source::Choice,
             }
         );
         assert_eq!(
@@ -1135,7 +1250,7 @@ mod tests {
     #[test]
     fn a_field_the_persons_choice_hides_gets_nothing() {
         let given = answers(&[("vat", "included")]);
-        let masked = mask("공급일 2026-03-02", &form(), &given, &[]);
+        let masked = mask("공급일 2026-03-02", &form(), &given, Masking::Reviewed, &[]);
         let proposed = [ProposedAnswer {
             field: "supplied_on".into(),
             pointer: quote("2026-03-02"),

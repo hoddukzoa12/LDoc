@@ -1,111 +1,20 @@
 {
   "anchor": "물품공급계약서",
-  "note": "the model reads the parties, the goods, the price and the due date; it also points at the supply date, which the form asks once 거래 형태 is 1회성 공급",
-  "result": {
-    "id": "recorded",
-    "ok": true,
-    "proposal": {
-      "kind": "fill",
-      "answers": [
-        {
-          "field": "creditor_type",
-          "pointer": {
-            "by": "option",
-            "value": "corporation"
-          }
-        },
-        {
-          "field": "debtor_type",
-          "pointer": {
-            "by": "option",
-            "value": "corporation"
-          }
-        },
-        {
-          "field": "trade_type",
-          "pointer": {
-            "by": "option",
-            "value": "one_time"
-          }
-        },
-        {
-          "field": "goods",
-          "pointer": {
-            "by": "quote",
-            "text": "냉동 수산물 200박스"
-          }
-        },
-        {
-          "field": "total",
-          "pointer": {
-            "by": "quote",
-            "text": "10,000,000원"
-          }
-        },
-        {
-          "field": "vat",
-          "pointer": {
-            "by": "option",
-            "value": "included"
-          }
-        },
-        {
-          "field": "due_on",
-          "pointer": {
-            "by": "quote",
-            "text": "2026. 3. 31."
-          }
-        },
-        {
-          "field": "creditor_name",
-          "pointer": {
-            "by": "placeholder",
-            "token": "⟦가린말1⟧"
-          }
-        },
-        {
-          "field": "creditor_id",
-          "pointer": {
-            "by": "placeholder",
-            "token": "⟦법인등록번호1⟧"
-          }
-        },
-        {
-          "field": "creditor_address",
-          "pointer": {
-            "by": "placeholder",
-            "token": "⟦가린말3⟧"
-          }
-        },
-        {
-          "field": "creditor_phone",
-          "pointer": {
-            "by": "placeholder",
-            "token": "⟦전화번호1⟧"
-          }
-        },
-        {
-          "field": "debtor_name",
-          "pointer": {
-            "by": "placeholder",
-            "token": "⟦가린말4⟧"
-          }
-        },
-        {
-          "field": "debtor_address",
-          "pointer": {
-            "by": "placeholder",
-            "token": "⟦가린말6⟧"
-          }
-        },
-        {
-          "field": "supplied_on",
-          "pointer": {
-            "by": "quote",
-            "text": "2026. 3. 2."
-          }
-        }
-      ]
-    }
-  }
+  "note": "the model reads the parties, the goods, the price and the due date, and finds each by what surrounds it, so a name masked by hand comes back as its placeholder and a name sent as written as a quote; it also points at the supply date, which the form asks once 거래 형태 is 1회성 공급",
+  "answers": [
+    { "field": "creditor_type", "option": "corporation" },
+    { "field": "debtor_type", "option": "corporation" },
+    { "field": "trade_type", "option": "one_time" },
+    { "field": "goods", "find": "을에게 (.+?)를 공급" },
+    { "field": "total", "find": "대금은 (.+?)\\(부가가치세" },
+    { "field": "vat", "option": "included" },
+    { "field": "due_on", "find": "대금을 (.+?)까지" },
+    { "field": "creditor_name", "find": "공급자\\(갑\\): (.+?) \\(대표이사" },
+    { "field": "creditor_id", "find": "법인등록번호 (\\S+)" },
+    { "field": "creditor_address", "find": "주소: (.+?), 전화" },
+    { "field": "creditor_phone", "find": "전화 (\\S+)" },
+    { "field": "debtor_name", "find": "구매자\\(을\\): (.+?) \\(대표이사" },
+    { "field": "debtor_address", "find": "구매자\\(을\\)[^\\n]*\\n\\s*주소: (.+)" },
+    { "field": "supplied_on", "find": "제3조\\(인도\\) 갑은 (.+?) 을의" }
+  ]
 }

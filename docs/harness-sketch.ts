@@ -51,7 +51,10 @@ export type Slot = {
 
 export type MaskCategory = "person" | "organization" | "resident_no" | "business_no" | "phone" | "address" | "account" | "plate";
 
-/** 화면이 승인 전에 보여 주는 것. 사용자는 낱말을 눌러 더 가릴 수 있다. */
+/** 붙여 넣은 글을 보내기 전에 얼마나 가리는지. 사용자의 설정이고 Rust 셸이 가진다. 기본은 identifiers. */
+export type Masking = "off" | "identifiers" | "reviewed";
+
+/** reviewed에서 화면이 승인 전에 보여 주는 것. 사용자는 낱말을 적어 더 가릴 수 있다. */
 export type MaskPreview = {
   text_id: string;
   masked: MaskedText;
@@ -69,9 +72,12 @@ export type Pointer =
 
 export type ProposedAnswer = { field: FieldId; pointer: Pointer };
 
-/** 코어가 Pointer를 풀어 읽은 결과. 양식에 "후보"로 뜨고 사용자가 확정해야 답이 된다. */
+/** 읽은 값이 붙여 넣은 글의 어디서 왔는지. 화면은 채운 칸 아래에 적는다. */
+export type Source = { by: "choice" } | { by: "quote"; text: string } | { by: "restored"; text: string };
+
+/** 코어가 Pointer를 풀어 읽은 결과. 읽은 값은 빈 칸을 바로 채우고, 값이 갈리거나 이미 답한 칸이면 후보로 남아 사용자가 고른다. */
 export type Candidate =
-  | { field: FieldId; status: "readable"; value: Answer; quoted: string; note?: "year_assumed" }
+  | { field: FieldId; status: "readable"; value: Answer; source: Source; note?: "year_assumed" }
   | {
       field: FieldId;
       status: "rejected";
@@ -229,8 +235,8 @@ export interface CoreAdditions {
   catalog(): DocEntry[];
   /** 지금 보이는 필드 중 답이 없는 것. show_when은 코어가 계산한다. */
   openFields(doc: DocId, answers: Record<string, Answer>): FieldSpec[];
-  /** 답에 있는 값(표기 차이 흡수), 번호류 정규식, 사용자가 누른 낱말로 가린다. */
-  mask(text: string, answers: Record<string, Answer>, extra: string[]): MaskPreview;
+  /** masking이 정한 만큼 가린다. reviewed는 답에 있는 값(표기 차이 흡수), 번호류 정규식, 사용자가 적은 낱말. identifiers는 번호류만. off는 아무것도. */
+  mask(text: string, answers: Record<string, Answer>, masking: Masking, extra: string[]): MaskPreview;
   /** Pointer를 원문에 대고 값을 읽는다. 금액과 날짜는 코어의 해석기가 읽지 못하면 후보가 되지 않는다. */
   resolve(doc: DocId, text_id: string, proposed: ProposedAnswer[]): Candidate[];
   slots(doc: DocId): Slot[];
@@ -245,8 +251,14 @@ export interface AssistCommands {
   /** 로그인은 Rust가 한다. 창은 사용자의 브라우저에 열리고 토큰은 OS 키체인에 간다. */
   assist_sign_in(): Promise<{ ok: boolean }>;
   assist_sign_out(): Promise<void>;
+  assist_masking(): Promise<Masking>;
+  /** 승인을 기다리던 미리보기를 버린다. */
+  assist_set_masking(masking: Masking): Promise<void>;
+  /** off, identifiers에서만. 셸이 자기 설정대로 가리고 턴을 돌린다. 화면은 가리기 수준을 넘기지 않는다. */
+  assist_send(text: string, doc: DocId | null): Promise<TurnOutcome>;
+  /** reviewed에서만. */
   assist_preview(text: string, doc: DocId | null, extra_masks: string[]): Promise<MaskPreview>;
-  /** 승인된 text_id만 받는다. 승인하지 않은 글은 Rust가 보내기를 거부한다. */
+  /** reviewed에서만. 승인된 text_id만 받는다. 승인하지 않은 글은 Rust가 보내기를 거부한다. */
   assist_run(plan: TurnPlan, approved_text_id: string): Promise<TurnOutcome>;
   assist_cancel(id: TurnId): Promise<void>;
   assist_sent(id: TurnId): Promise<{ to: "openai" | "korean-law"; body: string }[]>;

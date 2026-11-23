@@ -7,6 +7,7 @@
 #   scripts/box test          sync, then run every check (pnpm run check)
 #   scripts/box build         sync, then build the desktop app
 #   scripts/box e2e           sync, build, drive the real app, pull e2e-out/
+#   scripts/box demo          the same run, slowed down and filmed into e2e-out/demo.mp4
 #   scripts/box icons         generate the app icons from assets/icon.svg and copy them back
 #   scripts/box fmt           format the Rust code on the sandbox and copy it back
 #   scripts/box pull <path>   copy a file or directory back, relative to the project
@@ -72,9 +73,9 @@ pull_generated() {
 }
 
 # Pulls e2e-out/ whether or not the run passed, then exits with the run's code.
-e2e() {
+drive() {
   local status=0
-  run 'pnpm install && pnpm tauri build --no-bundle && pnpm run e2e' || status=$?
+  run "pnpm install && pnpm tauri build --no-bundle && pnpm run $1" || status=$?
   pull e2e-out
   return "$status"
 }
@@ -88,10 +89,11 @@ case "$command" in
   run) sync && run "$@" ;;
   test) sync && run 'pnpm install && pnpm run check' && pull_generated ;;
   build) sync && run 'pnpm install && pnpm tauri build --no-bundle' && pull_lockfiles ;;
-  e2e) sync && e2e ;;
+  e2e) sync && drive e2e ;;
+  demo) sync && drive demo ;;
   icons) sync && run 'pnpm install && pnpm tauri icon assets/icon.svg && rm -rf src-tauri/icons/android src-tauri/icons/ios' && pull src-tauri/icons ;;
   fmt) sync && run 'cargo fmt' && pull crates && pull src-tauri/src ;;
   pull) pull "$1" ;;
   down) instabox suspend "$BOX" ;;
-  *) sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  *) sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

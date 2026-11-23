@@ -1,55 +1,12 @@
 {
   "anchor": "거래명세서",
   "note": "the total is written as 1,000만 원, which the core cannot read, so it must not become a candidate",
-  "result": {
-    "id": "recorded",
-    "ok": true,
-    "proposal": {
-      "kind": "fill",
-      "answers": [
-        {
-          "field": "creditor_name",
-          "pointer": {
-            "by": "placeholder",
-            "token": "⟦가린말1⟧"
-          }
-        },
-        {
-          "field": "debtor_name",
-          "pointer": {
-            "by": "placeholder",
-            "token": "⟦가린말3⟧"
-          }
-        },
-        {
-          "field": "trade_type",
-          "pointer": {
-            "by": "option",
-            "value": "one_time"
-          }
-        },
-        {
-          "field": "vat",
-          "pointer": {
-            "by": "option",
-            "value": "included"
-          }
-        },
-        {
-          "field": "total",
-          "pointer": {
-            "by": "quote",
-            "text": "1,000만 원"
-          }
-        },
-        {
-          "field": "paid",
-          "pointer": {
-            "by": "quote",
-            "text": "3,000,000원"
-          }
-        }
-      ]
-    }
-  }
+  "answers": [
+    { "field": "creditor_name", "find": "공급자: (.+?) \\(사업자" },
+    { "field": "debtor_name", "find": "공급받는자: (.+?) 귀하" },
+    { "field": "trade_type", "option": "one_time" },
+    { "field": "vat", "option": "included" },
+    { "field": "total", "find": "합계: (.+?) \\(부가세" },
+    { "field": "paid", "find": "입금: (.+?) \\(" }
+  ]
 }

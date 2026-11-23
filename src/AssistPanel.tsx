@@ -1,12 +1,15 @@
-// Fills the form from pasted text. The core masks the text, the person
-// approves exactly what leaves, and each answer the core reads comes back as
-// a candidate beside its field. This panel shows and asks; it reads nothing.
+// Fills the form from pasted text. The shell masks the text as far as the
+// person's setting asks, and the answers the core reads fill the empty fields
+// they agree on; the rest wait beside their fields. Under "보고 승인하기" the
+// person first sees the masked text and approves exactly what leaves. This
+// panel shows and asks; it reads nothing.
 
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Card } from "@astryxdesign/core/Card";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { List, ListItem } from "@astryxdesign/core/List";
+import { RadioList, RadioListItem } from "@astryxdesign/core/RadioList";
 import { Spinner } from "@astryxdesign/core/Spinner";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Heading, Text } from "@astryxdesign/core/Text";
@@ -15,15 +18,18 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import { useEffect, useState } from "react";
 import type { Filling } from "./App";
 import type { AssistError } from "./bindings/AssistError";
+import type { AssistRun } from "./bindings/AssistRun";
 import type { AssistStatus } from "./bindings/AssistStatus";
 import type { Candidate } from "./bindings/Candidate";
+import type { Masked } from "./bindings/Masked";
+import type { Masking } from "./bindings/Masking";
 import type { MaskPreview } from "./bindings/MaskPreview";
 import type { Rejection } from "./bindings/Rejection";
 import type { SentBody } from "./bindings/SentBody";
 import type { TurnFailure } from "./bindings/TurnFailure";
+import { type Readable, apply } from "./candidates";
 import * as ipc from "./ipc";
 
-export type Readable = Extract<Candidate, { status: "readable" }>;
 type Rejected = Extract<Candidate, { status: "rejected" }>;
 
 type Phase =
@@ -32,13 +38,39 @@ type Phase =
   /** A new preview with changed words is on its way; the shown one can no longer be approved. */
   | { kind: "remasking"; preview: MaskPreview; words: string[] }
   | { kind: "running"; preview: MaskPreview; words: string[] }
-  | { kind: "done"; turn: string; offered: number; rejected: Rejected[]; sent: SentBody[] | null }
+  | {
+      kind: "done";
+      turn: string;
+      /** The setting the text left under. */
+      masking: Masking;
+      masked: Masked[];
+      /** How many empty fields the turn filled. */
+      filled: number;
+      rejected: Rejected[];
+      sent: SentBody[] | null;
+    }
   | { kind: "failed"; message: string };
+
+/** The three settings, from the least hidden to the most, each with what it lets leave the device. */
+const LEVELS: { value: Masking; label: string; leaves: string }[] = [
+  { value: "off", label: "가리지 않기", leaves: "붙여 넣은 글을 하나도 가리지 않고 그대로 보냅니다." },
+  {
+    value: "identifiers",
+    label: "번호만 가리기",
+    leaves: "주민·법인·사업자등록번호, 전화번호, 계좌번호, 차량번호, 전자우편은 가리고, 이름, 상호, 주소는 적힌 그대로 보냅니다.",
+  },
+  {
+    value: "reviewed",
+    label: "보고 승인하기",
+    leaves: "번호와 이미 적은 개인정보를 가린 글을 먼저 보여 주고, 이름이나 주소를 직접 더 가린 뒤 승인한 글만 보냅니다.",
+  },
+];
 
 const ASSIST_ERRORS: Record<AssistError["type"], string> = {
   unknown_document: "이 문서에는 도우미를 쓸 수 없습니다.",
   not_approved: "보내려던 글이 마지막으로 미리 본 글과 달라서 보내지 않았습니다. 다시 미리 보고 승인하세요.",
   word_too_short: "한 글자는 가릴 수 없습니다. 그 글자가 든 다른 말까지 가려지기 때문입니다. 이름 전체처럼 두 글자 이상을 적으세요.",
+  masking_mismatch: "가리기 설정이 화면에 보이던 것과 달라서 보내지 않았습니다. 설정을 확인하고 다시 보내세요.",
 };
 
 function messageOf(error: unknown): string {
@@ -66,25 +98,59 @@ const RECIPIENTS: Record<string, string> = { openai: "OpenAI" };
 /** A placeholder the core put in the masked text: `⟦전화번호1⟧` or `{{ creditor_name }}`. */
 const PLACEHOLDER = /(⟦[^⟧]+⟧|\{\{ [^}]+ \}\})/;
 
-export function AssistPanel({
-  filling,
-  onCandidates,
-}: {
-  filling: Filling;
-  onCandidates: (candidates: Readable[]) => void;
-}) {
+export function AssistPanel({ filling, onFill }: { filling: Filling; onFill: (readable: Readable[]) => void }) {
   const [status, setStatus] = useState<AssistStatus | null>(null);
+  const [masking, setMasking] = useState<Masking | null>(null);
   const [pasted, setPasted] = useState("");
   const [word, setWord] = useState("");
   const [wordProblem, setWordProblem] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>({ kind: "pasting" });
 
+  const fail = (error: unknown) => setPhase({ kind: "failed", message: messageOf(error) });
+
   useEffect(() => {
-    ipc.assistStatus().then(setStatus, (error) => setPhase({ kind: "failed", message: String(error) }));
+    ipc.assistStatus().then(setStatus, fail);
+    ipc.assistMasking().then(setMasking, fail);
   }, []);
 
   const labelOf = (id: string) =>
     filling.form.steps.flatMap((step) => step.fields).find((field) => field.id === id)?.label ?? id;
+
+  function choose(value: string) {
+    const level = LEVELS.find((each) => each.value === value);
+    if (level) ipc.assistSetMasking(level.value).then(() => setMasking(level.value), fail);
+  }
+
+  /** Fills the form from the turn, or says why it could not. */
+  function finish(run: AssistRun, under: Masking) {
+    if (run.outcome.kind === "failed") {
+      setPhase({ kind: "failed", message: FAILURES[run.outcome.failure.why] });
+      return;
+    }
+    const candidates = run.outcome.candidates;
+    const readable = candidates.filter((candidate): candidate is Readable => candidate.status === "readable");
+    const after = apply(filling.form, filling, readable);
+    onFill(readable);
+    setPhase({
+      kind: "done",
+      turn: run.turn,
+      masking: under,
+      masked: run.masked,
+      filled: Object.keys(after.filled).filter((id) => after.filled[id] !== filling.filled[id]).length,
+      rejected: candidates.filter((candidate): candidate is Rejected => candidate.status === "rejected"),
+      sent: null,
+    });
+  }
+
+  /** Sends the pasted text as the setting masks it, with no preview. */
+  async function send(under: Masking) {
+    try {
+      finish(await ipc.assistSend(pasted, filling.doc.id, filling.answers), under);
+    } catch (error) {
+      fail(error);
+      ipc.assistMasking().then(setMasking, fail);
+    }
+  }
 
   /** Shows the text masked with these words. Resolves whether the new preview is now shown. */
   async function preview(words: string[]): Promise<boolean> {
@@ -99,7 +165,7 @@ export function AssistPanel({
         setPhase(shown);
         setWordProblem(messageOf(error));
       } else {
-        setPhase({ kind: "failed", message: messageOf(error) });
+        fail(error);
       }
       return false;
     }
@@ -108,23 +174,9 @@ export function AssistPanel({
   async function approve(preview: MaskPreview, words: string[]) {
     setPhase({ kind: "running", preview, words });
     try {
-      const run = await ipc.assistRun({ kind: "fill", doc: filling.doc.id }, preview.text_id);
-      if (run.outcome.kind === "failed") {
-        setPhase({ kind: "failed", message: FAILURES[run.outcome.failure.why] });
-        return;
-      }
-      const candidates = run.outcome.candidates;
-      const readable = candidates.filter((candidate): candidate is Readable => candidate.status === "readable");
-      onCandidates(readable);
-      setPhase({
-        kind: "done",
-        turn: run.turn,
-        offered: readable.length,
-        rejected: candidates.filter((candidate): candidate is Rejected => candidate.status === "rejected"),
-        sent: null,
-      });
+      finish(await ipc.assistRun({ kind: "fill", doc: filling.doc.id }, preview.text_id), "reviewed");
     } catch (error) {
-      setPhase({ kind: "failed", message: messageOf(error) });
+      fail(error);
     }
   }
 
@@ -135,7 +187,7 @@ export function AssistPanel({
           붙여 넣은 글로 채우기
         </Heading>
         <Text type="supporting" color="secondary">
-          자료에서 찾은 값을 칸 옆에 후보로 보여 줍니다. 받아들인 후보만 답이 됩니다.
+          자료에서 찾은 값으로 빈 칸을 채웁니다. 이미 답한 칸은 바꾸지 않습니다.
         </Text>
       </VStack>
 
@@ -149,21 +201,45 @@ export function AssistPanel({
       )}
 
       {phase.kind === "pasting" && (
-        <VStack gap={3} data-assist="paste">
+        <VStack gap={4} data-assist="paste">
           <TextArea
             label="붙여 넣을 글"
-            description="계약서, 거래명세서, 문자 대화를 붙여 넣으세요. 승인하기 전에는 아무것도 보내지 않습니다."
+            description="계약서, 거래명세서, 문자 대화를 붙여 넣으세요."
             rows={8}
             value={pasted}
             onChange={setPasted}
           />
+          {masking !== null && (
+            <RadioList label="보내기 전에 가리기" size="sm" value={masking} onChange={choose}>
+              {LEVELS.map((level) => (
+                <RadioListItem
+                  key={level.value}
+                  value={level.value}
+                  label={level.label}
+                  description={level.leaves}
+                  align="first-line"
+                  data-masking-level={level.value}
+                />
+              ))}
+            </RadioList>
+          )}
           <HStack>
-            <Button
-              label="가린 글 미리 보기"
-              data-action="preview"
-              isDisabled={pasted.trim() === ""}
-              clickAction={() => preview([]).then(() => {})}
-            />
+            {masking === "reviewed" ? (
+              <Button
+                label="가린 글 미리 보기"
+                data-action="preview"
+                isDisabled={pasted.trim() === ""}
+                clickAction={() => preview([]).then(() => {})}
+              />
+            ) : (
+              <Button
+                label="채우기"
+                variant="primary"
+                data-action="fill"
+                isDisabled={pasted.trim() === "" || masking === null}
+                clickAction={() => (masking === null ? Promise.resolve() : send(masking))}
+              />
+            )}
           </HStack>
         </VStack>
       )}
@@ -173,7 +249,7 @@ export function AssistPanel({
           <VStack gap={2}>
             <Text type="label">보낼 글</Text>
             <Text type="supporting" color="secondary">
-              {summary(phase.preview)} 이름, 상호, 주소처럼 아직 보이는 개인정보는 아래에서 더 가리세요.
+              {summary(phase.preview.found)} 이름, 상호, 주소처럼 아직 보이는 개인정보는 아래에서 더 가리세요.
             </Text>
             <Card variant="muted" padding={3}>
               <MaskedText text={phase.preview.masked} />
@@ -232,7 +308,7 @@ export function AssistPanel({
               <Text type="supporting" color="secondary">
                 {phase.kind === "remasking"
                   ? "가린 글을 다시 만드는 중입니다. 새 글이 보이면 승인할 수 있습니다."
-                  : "승인하면 위의 가린 글과 빈 칸의 이름을 보냅니다."}
+                  : "승인하면 위의 가린 글과 빈 칸의 이름을 보내고, 돌아온 값으로 빈 칸을 채웁니다."}
               </Text>
               <HStack gap={2}>
                 <Button
@@ -255,19 +331,18 @@ export function AssistPanel({
 
       {phase.kind === "done" && (
         <VStack gap={4} data-assist="done">
-          {filling.candidates.length > 0 ? (
+          <Banner
+            status="success"
+            title={phase.filled > 0 ? `답 ${phase.filled}개를 채웠습니다` : "새로 채운 답이 없습니다"}
+            description={`${leftAs(phase.masking, phase.masked)} 채운 칸 아래에 어디서 온 값인지 적었습니다. 맞지 않으면 지우거나 고치세요.`}
+            data-assist="filled"
+          />
+          {filling.candidates.length > 0 && (
             <Banner
-              status="success"
-              title={`남은 후보 ${filling.candidates.length}개`}
-              description={`찾은 후보 ${phase.offered}개 중 아직 받아들이거나 버리지 않은 것입니다. 후보가 있는 단계는 왼쪽 단계 목록에 개수로 표시했습니다. 선택에 따라 나타나는 칸의 후보는 그 칸이 보일 때 나옵니다. 받아들여야 답이 됩니다.`}
-              data-assist="remaining"
-            />
-          ) : (
-            <Banner
-              status="success"
-              title="남은 후보가 없습니다"
-              description={`찾은 후보 ${phase.offered}개를 모두 정했습니다. 고른 답 때문에 보이지 않게 된 칸의 후보는 남기지 않습니다.`}
-              data-assist="remaining"
+              status="warning"
+              title={`고를 값 ${filling.candidates.length}개`}
+              description="한 칸에 다른 값이 둘 이상 나왔거나, 이미 답한 칸이거나, 아직 하지 않은 선택 뒤에 숨은 칸이라 채우지 않았습니다. 그 칸 아래에서 받아들이거나 버리세요. 단계 목록에 개수를 적었습니다."
+              data-assist="waiting"
             />
           )}
           {phase.rejected.length > 0 && (
@@ -296,12 +371,7 @@ export function AssistPanel({
                 label="보낸 내용 보기"
                 size="sm"
                 data-action="show-sent"
-                onClick={() =>
-                  ipc.assistSent(phase.turn).then(
-                    (sent) => setPhase({ ...phase, sent }),
-                    (error) => setPhase({ kind: "failed", message: String(error) }),
-                  )
-                }
+                onClick={() => ipc.assistSent(phase.turn).then((sent) => setPhase({ ...phase, sent }), fail)}
               />
               <Button label="새 글 붙여 넣기" size="sm" variant="ghost" onClick={() => setPhase({ kind: "pasting" })} />
             </HStack>
@@ -317,7 +387,7 @@ export function AssistPanel({
                     </Text>
                   </VStack>
                   <VStack gap={2}>
-                    <Text type="label">가린 글</Text>
+                    <Text type="label">{phase.masking === "off" ? "보낸 글" : "가린 글"}</Text>
                     <Card variant="muted" padding={3}>
                       <MaskedText text={sent.request.text} />
                     </Card>
@@ -352,7 +422,7 @@ export function AssistPanel({
 
       {phase.kind === "failed" && (
         <VStack gap={3} data-assist="failed">
-          <Banner status="error" title="후보를 받지 못했습니다" description={phase.message} />
+          <Banner status="error" title="채우지 못했습니다" description={phase.message} />
           <HStack>
             <Button label="다시 붙여 넣기" size="sm" onClick={() => setPhase({ kind: "pasting" })} />
           </HStack>
@@ -368,9 +438,21 @@ export function AssistPanel({
   }
 }
 
-function summary(preview: MaskPreview): string {
-  const automatic = preview.found.filter((found) => found.by !== "user").length;
-  const chosen = preview.found.length - automatic;
+/** What the text that left says about masking, in a sentence or two. */
+function leftAs(masking: Masking, masked: Masked[]): string {
+  switch (masking) {
+    case "off":
+      return "붙여 넣은 글을 가리지 않고 그대로 보냈습니다.";
+    case "identifiers":
+      return `${masked.length > 0 ? `번호 ${masked.length}개를 가리고 보냈습니다.` : "가릴 번호가 없었습니다."} 이름, 상호, 주소는 가리지 않고 적힌 그대로 보냈습니다.`;
+    case "reviewed":
+      return `승인한 글만 보냈습니다. ${summary(masked)}`;
+  }
+}
+
+function summary(found: Masked[]): string {
+  const automatic = found.filter((each) => each.by !== "user").length;
+  const chosen = found.length - automatic;
   return `자동으로 가린 것 ${automatic}개, 직접 가린 것 ${chosen}개.`;
 }
 
@@ -380,7 +462,7 @@ function MaskedText({ text }: { text: string }) {
     <VStack gap={0} data-masked>
       {text.split("\n").map((line, index) => (
         <Text key={index} type="body" display="block" wordBreak="break-word">
-          {line === "" ? " " : <MaskedLine line={line} />}
+          {line === "" ? " " : <MaskedLine line={line} />}
         </Text>
       ))}
     </VStack>

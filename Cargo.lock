@@ -1791,6 +1791,7 @@ name = "ldoc"
 version = "0.1.0"
 dependencies = [
  "ldoc-core",
+ "regex",
  "serde",
  "serde_json",
  "tauri",

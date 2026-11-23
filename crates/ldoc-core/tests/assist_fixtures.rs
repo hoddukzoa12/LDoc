@@ -1,79 +1,62 @@
-//! Holds the replay recordings in src-tauri/replay/ to the pasted texts in
-//! e2e/assist-fixtures.json: masking the text with its personal strings
-//! leaves none of them, the recording's anchor survives masking, and the
-//! core reads each recorded pointer the way the fixture expects.
+//! Holds the masking levels to the pasted texts in e2e/assist-fixtures.json.
+//! The shell's tests hold the replay recordings in src-tauri/replay/ to the
+//! same texts.
 
-use ldoc_core::{
-    Answer, Answers, Candidate, TurnOutcome, TurnResult, form, mask, open_fields, outcome,
-};
+use ldoc_core::{Answers, Masking, form, mask};
 use serde_json::Value;
 use std::{fs, path::Path};
 
-fn read(relative: &str) -> Value {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative);
+fn fixtures() -> Vec<Value> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../e2e/assist-fixtures.json");
     serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap()
 }
 
-fn shown(candidate: &Candidate) -> (String, String) {
-    match candidate {
-        Candidate::Readable { field, value, .. } => {
-            let value = match value {
-                Answer::One(text) => text.clone(),
-                Answer::Many(values) => values.join(","),
-            };
-            (field.clone(), value)
-        }
-        Candidate::Rejected { field, reason } => {
-            let reason = serde_json::to_value(reason).unwrap();
-            (
-                field.clone(),
-                format!("rejected:{}", reason.as_str().unwrap()),
-            )
-        }
-    }
+fn strings(value: &Value) -> Vec<String> {
+    serde_json::from_value(value.clone()).unwrap()
 }
 
-/// Masking with no answers and no added words removes the fixture's
-/// identifiers and nothing else on its personal list: names and addresses
-/// stay until the person masks them.
+/// Masking identifiers removes the fixture's identifiers and nothing else on
+/// its personal list: names and addresses go as written.
 #[test]
-fn automatic_masking_alone_removes_exactly_the_identifiers() {
+fn identifiers_masking_removes_exactly_the_identifiers() {
     let form = form("payment-order-goods").unwrap();
-    let fixtures = read("../../e2e/assist-fixtures.json");
-    for fixture in fixtures.as_array().unwrap() {
+    for fixture in fixtures() {
         let id = fixture["id"].as_str().unwrap();
-        let pii: Vec<String> = serde_json::from_value(fixture["pii"].clone()).unwrap();
-        let identifiers: Vec<String> =
-            serde_json::from_value(fixture["identifiers"].clone()).unwrap();
         let masked = mask(
             fixture["pasted"].as_str().unwrap(),
             &form,
             &Answers::new(),
+            Masking::Identifiers,
             &[],
         );
-        let removed: Vec<&String> = pii
-            .iter()
+        let removed: Vec<String> = strings(&fixture["pii"])
+            .into_iter()
             .filter(|personal| !masked.text().contains(personal.as_str()))
             .collect();
         assert_eq!(
             removed,
-            identifiers.iter().collect::<Vec<_>>(),
+            strings(&fixture["identifiers"]),
             "{id}: {}",
             masked.text()
         );
     }
 }
 
+/// Reviewing with the fixture's personal strings added as the person's
+/// words leaves none of them.
 #[test]
-fn each_recording_reads_as_its_fixture_expects() {
+fn reviewed_masking_with_the_personal_strings_leaves_none() {
     let form = form("payment-order-goods").unwrap();
-    let answers = Answers::new();
-    let offered = open_fields(&form, &answers);
-    let fixtures = read("../../e2e/assist-fixtures.json");
-    for fixture in fixtures.as_array().unwrap() {
+    for fixture in fixtures() {
         let id = fixture["id"].as_str().unwrap();
-        let pii: Vec<String> = serde_json::from_value(fixture["pii"].clone()).unwrap();
-        let masked = mask(fixture["pasted"].as_str().unwrap(), &form, &answers, &pii);
+        let pii = strings(&fixture["pii"]);
+        let masked = mask(
+            fixture["pasted"].as_str().unwrap(),
+            &form,
+            &Answers::new(),
+            Masking::Reviewed,
+            &pii,
+        );
         for personal in &pii {
             assert!(
                 !masked.text().contains(personal.as_str()),
@@ -81,27 +64,5 @@ fn each_recording_reads_as_its_fixture_expects() {
                 masked.text()
             );
         }
-
-        let recording = read(&format!("../../src-tauri/replay/{id}.json"));
-        let anchor = recording["anchor"].as_str().unwrap();
-        assert!(
-            masked.text().contains(anchor),
-            "{id}: anchor {anchor} masked away"
-        );
-        let result: TurnResult = serde_json::from_value(recording["result"].clone()).unwrap();
-        let TurnOutcome::Fill { candidates } = outcome(result, &masked, &offered) else {
-            panic!("{id}: not a fill outcome");
-        };
-
-        let mut read: Vec<(String, String)> = candidates.iter().map(shown).collect();
-        let mut expected: Vec<(String, String)> = fixture["expect"]
-            .as_object()
-            .unwrap()
-            .iter()
-            .map(|(field, value)| (field.clone(), value.as_str().unwrap().to_string()))
-            .collect();
-        read.sort();
-        expected.sort();
-        assert_eq!(read, expected, "{id}");
     }
 }

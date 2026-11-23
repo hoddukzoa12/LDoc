@@ -18,10 +18,10 @@ import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import type { ReactNode } from "react";
 import type { Filling } from "./App";
-import type { Readable } from "./AssistPanel";
 import type { Answer } from "./bindings/Answer";
 import type { Field } from "./bindings/Field";
-import { accept, isShown, waiting } from "./candidates";
+import type { Source } from "./bindings/Source";
+import { type Readable, accept, answerByHand, isShown, unanswered } from "./candidates";
 
 /** The form column, as in the form-wizard-vertical template. */
 const MEASURE = 640;
@@ -42,7 +42,7 @@ export function FormScreen({
   /** The panel beside the form. */
   side: ReactNode;
 }) {
-  const { doc, form, step, answers, errors, candidates } = filling;
+  const { doc, form, step, answers, errors, candidates, filled } = filling;
   const current = form.steps[step]!;
   const shown = current.fields.filter((field) => isShown(field, answers));
   const unplaced = errors.filter(
@@ -51,23 +51,13 @@ export function FormScreen({
   const last = step === form.steps.length - 1;
   const errorOf = (id: string) => errors.find((error) => error.field === id)?.message;
 
-  const answer = (id: string, value: Answer) => {
-    const next = { ...answers, [id]: value };
-    onChange({
-      ...filling,
-      answers: next,
-      candidates: waiting(form, next, candidates),
-      errors: errors.filter((error) => error.field !== id),
-    });
-  };
+  const answer = (id: string, value: Answer) =>
+    onChange({ ...answerByHand(form, filling, id, value), errors: errors.filter((error) => error.field !== id) });
+  const clear = (id: string) => onChange(answerByHand(form, filling, id, undefined));
   const goTo = (index: number) => onChange({ ...filling, step: index });
   const candidatesFor = (id: string) => candidates.filter((candidate) => candidate.field === id);
   const take = (taken: Readable) =>
-    onChange({
-      ...filling,
-      ...accept(form, answers, candidates, taken),
-      errors: errors.filter((error) => error.field !== taken.field),
-    });
+    onChange({ ...accept(form, filling, taken), errors: errors.filter((error) => error.field !== taken.field) });
   const dismiss = (taken: Readable) =>
     onChange({ ...filling, candidates: candidates.filter((candidate) => candidate !== taken) });
 
@@ -83,22 +73,21 @@ export function FormScreen({
       start={
         <LayoutPanel width={RAIL_WIDTH} role="navigation" label="작성 단계">
           <Stepper activeStep={step} orientation="vertical" indicatorPosition="on-track" onStepClick={goTo} label="작성 단계">
-            {form.steps.map((candidate, index) => {
-              const invalid = candidate.fields.some((field) => errorOf(field.id) !== undefined);
+            {form.steps.map((each, index) => {
+              const invalid = each.fields.some((field) => errorOf(field.id) !== undefined);
+              const left = unanswered(each.fields, answers).length;
               // Every candidate in the list waits, so the counts add up to the assist panel's.
-              const pending = candidates.filter((each) =>
-                candidate.fields.some((field) => field.id === each.field),
-              ).length;
+              const pending = candidates.filter((candidate) => each.fields.some((field) => field.id === candidate.field)).length;
+              const counts = [left > 0 && `답할 항목 ${left}개`, pending > 0 && `고를 값 ${pending}개`].filter(Boolean);
               return (
                 <Step
-                  key={candidate.title}
+                  key={each.title}
                   step={index}
-                  label={candidate.title}
-                  description={
-                    invalid ? "확인이 필요한 항목이 있습니다." : pending > 0 ? `후보 ${pending}개` : undefined
-                  }
+                  label={each.title}
+                  description={invalid ? "확인이 필요한 항목이 있습니다." : counts.join(", ") || undefined}
                   status={invalid ? "error" : undefined}
                   indicator={invalid ? <Icon icon="error" size="sm" /> : "number"}
+                  data-testid={`rail-step-${index}`}
                 />
               );
             })}
@@ -142,6 +131,9 @@ export function FormScreen({
                           error={errorOf(field.id)}
                           onAnswer={(value) => answer(field.id, value)}
                         />
+                        {filled[field.id] && (
+                          <FilledNote field={field} sources={filled[field.id]!} onClear={() => clear(field.id)} />
+                        )}
                         {/* A multi-choice field can have a candidate per choice. Notes hold no state, so the index keys them. */}
                         {candidatesFor(field.id).map((candidate, index) => (
                           <CandidateNote
@@ -176,6 +168,39 @@ export function FormScreen({
   );
 }
 
+/** Where a value read from pasted text came from, in words. */
+function provenance(source: Source): string {
+  switch (source.by) {
+    case "choice":
+      return "글에서 옮긴 말이 아니라 도우미가 고른 선택지입니다. 글과 맞는지 확인하세요.";
+    case "quote":
+      return `근거: “${source.text}”`;
+    case "restored":
+      return `근거: “${source.text}”. 가려서 보낸 값을 이 기기에서 되살렸습니다.`;
+  }
+}
+
+/** Under a field filled from pasted text: where the value came from, and a way to clear it. */
+function FilledNote({ field, sources, onClear }: { field: Field; sources: Source[]; onClear: () => void }) {
+  return (
+    <HStack gap={2} vAlign="center" data-filled={field.id}>
+      <StackItem size="fill">
+        <VStack gap={0.5}>
+          <Text type="supporting">붙여 넣은 글에서 채웠습니다.</Text>
+          {sources.map((source, index) => (
+            <Text key={index} type="supporting" color="secondary">
+              {provenance(source)}
+            </Text>
+          ))}
+        </VStack>
+      </StackItem>
+      <Button label={`${field.label} 채운 값 지우기`} size="sm" variant="ghost" data-action="clear" onClick={onClear}>
+        지우기
+      </Button>
+    </HStack>
+  );
+}
+
 /** What a candidate would answer, as the field shows it: choices by their label. */
 function shownValue(field: Field, value: Answer): string {
   const keys = typeof value === "string" ? [value] : value;
@@ -200,14 +225,12 @@ function CandidateNote({
       <HStack gap={3} vAlign="center">
         <StackItem size="fill">
           <VStack gap={0.5}>
-            <Text type="supporting">붙여 넣은 글에서 찾은 후보</Text>
+            <Text type="supporting">붙여 넣은 글에서 찾았지만 채우지 않은 값. 받아들이면 답이 됩니다.</Text>
             <Text type="body" weight="semibold">
               {shownValue(field, candidate.value)}
             </Text>
             <Text type="supporting" color="secondary">
-              {candidate.quoted === null
-                ? "글에서 옮긴 말이 아니라 도우미가 고른 선택지입니다. 글과 맞는지 확인하세요."
-                : `근거: “${candidate.quoted}”`}
+              {provenance(candidate.source)}
             </Text>
           </VStack>
         </StackItem>

@@ -18,8 +18,8 @@ import type { DocSummary } from "./bindings/DocSummary";
 import type { Draft } from "./bindings/Draft";
 import type { FieldError } from "./bindings/FieldError";
 import type { Form } from "./bindings/Form";
-import { AssistPanel, type Readable } from "./AssistPanel";
-import { waiting } from "./candidates";
+import { AssistPanel } from "./AssistPanel";
+import { type Filled, type Readable, apply } from "./candidates";
 import { Disclaimer } from "./Disclaimer";
 import { EditorScreen } from "./EditorScreen";
 import { FormScreen } from "./FormScreen";
@@ -32,8 +32,10 @@ export type Filling = {
   step: number;
   answers: ipc.Answers;
   errors: FieldError[];
-  /** Answers read from pasted text, waiting beside their fields to be accepted. */
+  /** Answers read from pasted text that the person decides on: they disagree, or their field was already answered. */
   candidates: Readable[];
+  /** Where each answer filled from pasted text came from. */
+  filled: Filled;
 };
 
 type Screen =
@@ -91,7 +93,7 @@ export function App() {
 
   async function start(doc: DocSummary) {
     const form = await ipc.form(doc.id);
-    if (form) setScreen({ kind: "filling", filling: { doc, form, step: 0, answers: {}, errors: [], candidates: [] } });
+    if (form) setScreen({ kind: "filling", filling: { doc, form, step: 0, answers: {}, errors: [], candidates: [], filled: {} } });
     else setProblem(`${doc.title} 양식을 찾지 못했습니다.`);
   }
 
@@ -156,18 +158,15 @@ export function App() {
               side={
                 <AssistPanel
                   filling={screen.filling}
-                  onCandidates={(candidates) =>
-                    setScreen((current) =>
-                      current.kind === "filling"
-                        ? {
-                            kind: "filling",
-                            filling: {
-                              ...current.filling,
-                              candidates: waiting(current.filling.form, current.filling.answers, candidates),
-                            },
-                          }
-                        : current,
-                    )
+                  onFill={(readable) =>
+                    // Applied to the filling as it is when the turn ends, so an answer typed meanwhile stays.
+                    setScreen((current) => {
+                      if (current.kind !== "filling") return current;
+                      const before = current.filling;
+                      const after = apply(before.form, before, readable);
+                      const errors = before.errors.filter((error) => after.answers[error.field] === before.answers[error.field]);
+                      return { kind: "filling", filling: { ...after, errors } };
+                    })
                   }
                 />
               }

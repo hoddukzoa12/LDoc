@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "check": "cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace && pnpm run typecheck && pnpm run test",
-    "e2e": "xvfb-run -a -s '-screen 0 1600x1000x24' node e2e/run.mjs"
+    "e2e": "xvfb-run -a -s '-screen 0 1600x1000x24' node e2e/run.mjs",
+    "demo": "LDOC_FILM=1 xvfb-run -a -s '-screen 0 1360x1000x24' node e2e/run.mjs"
   },
   "dependencies": {
     "@astryxdesign/core": "0.7.16",
