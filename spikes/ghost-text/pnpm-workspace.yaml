@@ -1,3 +1,0 @@
-# Throwaway spike: its own workspace root, so its install never touches the app's.
-allowBuilds:
-  protobufjs: false

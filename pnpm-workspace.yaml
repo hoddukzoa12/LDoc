@@ -1,4 +1,2 @@
 allowBuilds:
   protobufjs: false
-  '@astryxdesign/cli': false
-  '@astryxdesign/core': false
