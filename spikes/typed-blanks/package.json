@@ -1,0 +1,17 @@
+{
+  "name": "typed-blanks-spike",
+  "private": true,
+  "type": "module",
+  "description": "Throwaway spike: a real guide template (doc-037 근로계약서) compiled into data, with typed blanks and branches that react to typing. Not app code.",
+  "dependencies": {
+    "prosemirror-commands": "^1.6.2",
+    "prosemirror-keymap": "^1.2.2",
+    "prosemirror-model": "^1.25.0",
+    "prosemirror-state": "^1.4.3",
+    "prosemirror-view": "^1.38.0"
+  },
+  "devDependencies": {
+    "selenium-webdriver": "4.53.0",
+    "vite": "8.3.8"
+  }
+}

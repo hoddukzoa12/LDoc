@@ -7,3 +7,4 @@ src-tauri/gen/
 .audit/
 themes/*/preview.html
 themes/*/*.png
+spikes/*/out/
