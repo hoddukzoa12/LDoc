@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <title>고스트 텍스트 스파이크</title>
+    <!-- Throwaway spike page, not app UI, so the app's Astryx rules do not apply here. -->
+    <style>
+      html, body { margin: 0; height: 100%; font-family: "Noto Sans CJK KR", sans-serif; }
+      body { display: flex; flex-direction: column; background: #eef0f3; }
+      #bar { display: flex; gap: 16px; align-items: center; padding: 8px 16px; background: #fff; border-bottom: 1px solid #d0d4da; font-size: 14px; }
+      #bar a { padding: 4px 10px; border-radius: 6px; color: #1f2937; text-decoration: none; border: 1px solid #d0d4da; }
+      #bar a[aria-current="page"] { background: #1f2937; color: #fff; }
+      #status { margin-left: auto; color: #6b7280; }
+      #host { flex: 1; min-height: 0; position: relative; }
+      #host.pm { overflow: auto; }
+      #host.pm .ProseMirror {
+        width: 794px; min-height: 1123px; box-sizing: border-box; margin: 24px auto; padding: 113px;
+        background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15); outline: none;
+        font-family: "Noto Serif CJK KR", serif; font-size: 16px; line-height: 1.6;
+      }
+      #host.pm .ProseMirror p { margin: 0; }
+      #host.pm .ghost { color: #9aa0a6; pointer-events: none; user-select: none; -webkit-user-select: none; }
+    </style>
+  </head>
+  <body>
+    <header id="bar">
+      <strong>고스트 텍스트 스파이크 (버릴 코드)</strong>
+      <a href="#univer" data-variant="univer">Univer 렌더 전용</a>
+      <a href="#univer-real" data-variant="univer-real">Univer 실제 텍스트 (대안)</a>
+      <a href="#prosemirror" data-variant="prosemirror">ProseMirror</a>
+      <span id="status"></span>
+    </header>
+    <main id="host"></main>
+    <script>
+      window.spikeErrors = [];
+      window.addEventListener("error", (e) => window.spikeErrors.push(e.message + "\n" + String(e.error?.stack ?? "")));
+      window.addEventListener("unhandledrejection", (e) => window.spikeErrors.push(String(e.reason) + "\n" + String(e.reason?.stack ?? "")));
+    </script>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

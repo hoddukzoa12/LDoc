@@ -1,0 +1,39 @@
+{
+  "name": "ldoc",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "tauri": "tauri",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace && pnpm run typecheck && pnpm run test",
+    "e2e": "xvfb-run -a -s '-screen 0 1600x1000x24' node e2e/run.mjs",
+    "demo": "LDOC_FILM=1 xvfb-run -a -s '-screen 0 1360x1000x24' node e2e/run.mjs"
+  },
+  "dependencies": {
+    "@astryxdesign/core": "0.7.16",
+    "@astryxdesign/theme-neutral": "0.7.16",
+    "@stylexjs/stylex": "0.19.2",
+    "@tauri-apps/api": "2.12.5",
+    "@tauri-apps/plugin-dialog": "2.8.4",
+    "@univerjs/preset-docs-core": "1.5.2",
+    "@univerjs/presets": "1.5.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "rxjs": "7.8.2"
+  },
+  "devDependencies": {
+    "@astryxdesign/cli": "0.7.16",
+    "@tauri-apps/cli": "2.12.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.3.0",
+    "selenium-webdriver": "4.53.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.8",
+    "vitest": "5.1.1"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "anchor": "거래명세서",
+  "note": "the total is written as 1,000만 원, which the core cannot read, so it must not become a candidate",
+  "answers": [
+    { "field": "creditor_name", "find": "공급자: (.+?) \\(사업자" },
+    { "field": "debtor_name", "find": "공급받는자: (.+?) 귀하" },
+    { "field": "trade_type", "option": "one_time" },
+    { "field": "vat", "option": "included" },
+    { "field": "total", "find": "합계: (.+?) \\(부가세" },
+    { "field": "paid", "find": "입금: (.+?) \\(" }
+  ]
+}
