@@ -429,11 +429,19 @@ export function mountEditor(host: HTMLElement, panel: HTMLElement, T: Template, 
   // -- what is drawn on top of the document
 
   function decorations(state: EditorState) {
-    if (!accepted) {
-      if (!skeletonShown(state)) return null;
-      return DecorationSet.create(state.doc, [Decoration.widget(state.selection.head, () => skeletonElement(), { side: 1, key: "skeleton", ignoreSelection: true })]);
-    }
     const composing = view?.composing ?? false;
+    if (!accepted) {
+      const { doc } = state;
+      if (!composing && doc.childCount === 1 && !doc.firstChild!.content.size) {
+        return DecorationSet.create(doc, [Decoration.node(0, doc.firstChild!.nodeSize, { class: "hint-placeholder", "data-hint": `제목을 치고 Enter · 예: ${T.trigger}` })]);
+      }
+      if (!skeletonShown(state)) return null;
+      const decos = [Decoration.widget(state.selection.head, () => skeletonElement(), { side: 1, key: "skeleton", ignoreSelection: true })];
+      const { $head } = state.selection;
+      const caretLine = $head.before(1);
+      if (!composing) decos.push(Decoration.node(caretLine - doc.child($head.index(0) - 1).nodeSize, caretLine, { class: "hint-label", "data-hint": "Tab으로 받아들이기" }));
+      return DecorationSet.create(doc, decos);
+    }
     const focus = focusOf(state);
     const decos: Decoration[] = [];
     const { ranges, bars, refs } = scan(state.doc);
@@ -585,7 +593,7 @@ export function mountEditor(host: HTMLElement, panel: HTMLElement, T: Template, 
 
   // -- the list of what is still open
 
-  type Item = { where: string; label: string; state: string; occ: string | null; pos: number; cond: boolean };
+  type Item = { where: string; label: string; state: string; tone: "plain" | "offer" | "bad"; occ: string | null; pos: number; cond: boolean };
 
   const places = placePaths(T);
   /** Only matters for some answers to a branch still open, rather than whichever way it goes. */
@@ -621,7 +629,7 @@ export function mountEditor(host: HTMLElement, panel: HTMLElement, T: Template, 
         const choice = choiceOf(T, line.attrs.bar);
         if (!seen.has(`c:${choice.id}`)) {
           seen.add(`c:${choice.id}`);
-          items.push({ where: /^c:[^/]+\/bar$/.test(key) ? whereOfBar(doc, offset) : where, label: choice.label, state: "고르지 않음", occ: `bar:${choice.id}`, pos: offset + 1, cond: conditional(places.choices.get(choice.id)!) });
+          items.push({ where: /^c:[^/]+\/bar$/.test(key) ? whereOfBar(doc, offset) : where, label: choice.label, state: "고르지 않음", tone: "plain", occ: `bar:${choice.id}`, pos: offset + 1, cond: conditional(places.choices.get(choice.id)!) });
         }
       }
       line.forEach((node, inner) => {
@@ -629,7 +637,7 @@ export function mountEditor(host: HTMLElement, panel: HTMLElement, T: Template, 
         const choiceId = variant?.split(":")[0];
         if (choiceId && !model.picks[choiceId] && !seen.has(`c:${choiceId}`) && !scan(doc).bars.some((b) => b.choice === choiceId)) {
           seen.add(`c:${choiceId}`);
-          items.push({ where, label: choiceOf(T, choiceId).label, state: "고르지 않음 (이름표를 눌러 고름)", occ: null, pos: offset + 1 + inner, cond: conditional(places.choices.get(choiceId)!) });
+          items.push({ where, label: choiceOf(T, choiceId).label, state: "고르지 않음 (이름표를 눌러 고름)", tone: "plain", occ: null, pos: offset + 1 + inner, cond: conditional(places.choices.get(choiceId)!) });
         }
       });
       for (const range of ranges) {
@@ -639,10 +647,10 @@ export function mountEditor(host: HTMLElement, panel: HTMLElement, T: Template, 
         const slot = slotOf(T, range.id);
         if (!value) {
           const suggestion = brain.suggestion(range.id, false);
-          items.push({ where, label: slot.label, state: suggestion ? `제안 ${suggestion.text}` : "빈칸", occ: range.occ, pos: range.from + 1, cond: conditional(places.slots.get(range.id)!) });
+          items.push({ where, label: slot.label, state: suggestion ? `제안 ${suggestion.text}` : "빈칸", tone: suggestion ? "offer" : "plain", occ: range.occ, pos: range.from + 1, cond: conditional(places.slots.get(range.id)!) });
         } else {
           const parsed = parseSlot(slot, value, brain.ctx());
-          if (!parsed.ok) items.push({ where, label: slot.label, state: parsed.pending ? `기다림: ${parsed.reason}` : `읽지 못함 ‘${value}’`, occ: range.occ, pos: range.from + 1, cond: false });
+          if (!parsed.ok) items.push({ where, label: slot.label, state: parsed.pending ? `기다림: ${parsed.reason}` : `읽지 못함 ‘${value}’`, tone: parsed.pending ? "plain" : "bad", occ: range.occ, pos: range.from + 1, cond: false });
         }
       }
     });
@@ -662,29 +670,29 @@ export function mountEditor(host: HTMLElement, panel: HTMLElement, T: Template, 
     return label || "서명란";
   }
 
+  const list = panel.querySelector<HTMLElement>("#open-list")!;
+  const toggle = panel.querySelector<HTMLButtonElement>("#open-toggle")!;
+  toggle.addEventListener("mousedown", (event) => event.preventDefault());
+  toggle.addEventListener("click", () => toggle.setAttribute("aria-expanded", String(panel.classList.toggle("pinned"))));
+
   let items: Item[] = [];
   function refreshPanel() {
     items = openItems();
-    panel.replaceChildren();
-    const head = document.createElement("h2");
+    panel.hidden = !accepted;
     const firm = items.filter((item) => !item.cond).length;
     const cond = items.length - firm;
-    head.textContent = !accepted ? "남은 항목" : items.length ? `남은 항목 ${firm}` : "남은 항목 없음";
-    panel.append(head);
-    if (accepted && cond) {
+    const bad = items.filter((item) => item.tone === "bad").length;
+    toggle.textContent = items.length ? `남은 항목 ${firm}${bad ? ` · 읽지 못함 ${bad}` : ""}` : "남은 항목 없음";
+    toggle.className = items.length ? (bad ? "warn" : "") : "done";
+    list.replaceChildren();
+    if (cond) {
       const p = document.createElement("p");
       p.className = "muted";
       p.textContent = `흐린 ${cond}개는 아직 고르지 않은 갈래 안에 있어, 고르는 데 따라 필요하거나 사라집니다.`;
-      panel.append(p);
+      list.append(p);
     }
-    if (!accepted) {
-      const p = document.createElement("p");
-      p.className = "muted";
-      p.textContent = "제목을 치고 Enter, Tab으로 받아들이면 여기에 빈칸과 고를 곳이 나옵니다.";
-      panel.append(p);
-      return;
-    }
-    const list = document.createElement("ol");
+    if (!items.length) return;
+    const rows = document.createElement("ol");
     items.forEach((item, index) => {
       const li = document.createElement("li");
       li.dataset.index = String(index);
@@ -697,7 +705,7 @@ export function mountEditor(host: HTMLElement, panel: HTMLElement, T: Template, 
       label.className = "label";
       label.textContent = item.label;
       const state = document.createElement("span");
-      state.className = `state${item.state.startsWith("읽지") ? " bad" : item.state.startsWith("제안") ? " offer" : ""}`;
+      state.className = item.tone === "plain" ? "state" : `state ${item.tone}`;
       state.textContent = item.state;
       li.append(where, label, state);
       li.addEventListener("mousedown", (event) => {
@@ -705,9 +713,9 @@ export function mountEditor(host: HTMLElement, panel: HTMLElement, T: Template, 
         if (item.occ) jumpTo(item.occ);
         else jumpToPos(item.pos);
       });
-      list.append(li);
+      rows.append(li);
     });
-    panel.append(list);
+    list.append(rows);
   }
 
   function jumpTo(occ: string) {
@@ -756,7 +764,7 @@ export function mountEditor(host: HTMLElement, panel: HTMLElement, T: Template, 
         return false;
       },
       compositionend() {
-        setTimeout(() => accepted && finish(view.state), 0);
+        setTimeout(() => (accepted ? finish(view.state) : view.dispatch(view.state.tr)), 0);
         return false;
       },
     },

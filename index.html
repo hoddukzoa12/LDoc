@@ -8,11 +8,16 @@
       body { display: flex; flex-direction: column; background: #eef0f3; }
       #bar { display: flex; gap: 16px; align-items: center; padding: 8px 16px; background: #fff; border-bottom: 1px solid #d0d4da; font-size: 14px; }
       #today { margin-left: auto; color: #6b7280; }
-      #main { flex: 1; min-height: 0; display: flex; }
-      #host { --page-pad: 72px; --gutter: 190px; flex: 1; min-width: 0; overflow: auto; position: relative; padding: 24px var(--gutter) 80px; }
-      #open { width: 300px; flex: none; overflow: auto; background: #fff; border-left: 1px solid #d0d4da; padding: 12px 14px; box-sizing: border-box; font-size: 13px; }
-      #open h2 { font-size: 15px; margin: 0 0 8px; }
-      #open .muted { color: #6b7280; }
+      #host { --page-pad: 72px; --gutter: 190px; flex: 1; min-height: 0; overflow: auto; position: relative; padding: 24px var(--gutter) 80px; }
+      #open { position: fixed; right: 24px; bottom: 24px; z-index: 5; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; font-size: 13px; }
+      #open[hidden] { display: none; }
+      #open-list { display: none; width: 300px; max-height: min(60vh, 520px); overflow: auto; box-sizing: border-box; padding: 10px 12px; background: #fff; border: 1px solid #d0d4da; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12); }
+      #open:hover #open-list:not(:empty), #open.pinned #open-list:not(:empty) { display: block; }
+      #open-toggle { padding: 6px 14px; border-radius: 16px; border: 1px solid #d0d4da; background: #fff; color: #1f2937; font: inherit; font-weight: 600; cursor: pointer; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15); }
+      #open-toggle:hover, #open.pinned #open-toggle { background: #f3f4f6; }
+      #open-toggle.warn { color: #b45309; border-color: #f5c26b; background: #fff7e6; }
+      #open-toggle.done { color: #166534; border-color: #86d1a3; background: #eefbf3; }
+      #open .muted { margin: 0 0 8px; color: #6b7280; }
       #open ol { list-style: none; margin: 0; padding: 0; }
       #open li { display: grid; grid-template-columns: 44px 1fr; gap: 0 6px; padding: 5px 6px; border-radius: 6px; cursor: pointer; }
       #open li:hover { background: #f3f4f6; }
@@ -32,6 +37,8 @@
         font-family: "Noto Serif CJK KR", serif; font-size: 15px; line-height: 1.65; color: #111827;
       }
       .ProseMirror p { margin: 0; position: relative; }
+      .hint-placeholder::before { content: attr(data-hint); position: absolute; left: 0; color: #a3a8ae; pointer-events: none; }
+      .hint-label::after { content: attr(data-hint); margin-left: 10px; padding: 1px 6px; border-radius: 4px; background: #f3f4f6; color: #6b7280; font-family: "Noto Sans CJK KR", sans-serif; font-size: 12px; pointer-events: none; }
       .indent-1 { padding-left: 1.2em; }
       .indent-2 { padding-left: 2.4em; }
       .indent-3 { padding-left: 3.6em; }
@@ -92,10 +99,11 @@
       <span id="today"></span>
     </header>
     <div id="banner" hidden></div>
-    <div id="main">
-      <main id="host"></main>
-      <aside id="open"></aside>
-    </div>
+    <main id="host"></main>
+    <aside id="open" hidden>
+      <div id="open-list"></div>
+      <button id="open-toggle" type="button" aria-expanded="false"></button>
+    </aside>
     <script>
       window.spikeErrors = [];
       window.addEventListener("error", (e) => window.spikeErrors.push(e.message + "\n" + String(e.error?.stack ?? "")));

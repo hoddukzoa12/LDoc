@@ -35,6 +35,10 @@ const check = (name, value) => {
   report.checks[name] = value;
   console.log(`${name}: ${JSON.stringify(value)}`);
 };
+const must = (name, value, ok) => {
+  check(name, value);
+  if (!ok) throw new Error(`${name} failed: ${JSON.stringify(value)}`);
+};
 
 try {
   if (mode === "smoke") await smoke();
@@ -61,6 +65,7 @@ try {
 
 async function smoke() {
   await load();
+  await shot("smoke-0-empty.png");
   await startDocument(0);
   await shot("smoke-1-ghost.png");
   check("ghost shown", await call("skeleton"));
@@ -71,6 +76,25 @@ async function smoke() {
   check("focus after accept", await call("focus"));
   check("stats", await call("stats"));
   check("open items", (await call("items")).length);
+  const page = await layout();
+  must("paper centred in #host", page, Math.abs(page.left - page.right) <= 1 && new Set(page.pads).size === 1);
+  const unpinned = await listDisplay();
+  must("open list hidden by default", unpinned, unpinned === "none");
+  await pinList();
+  await driver.actions().move({ x: 20, y: 400 }).perform();
+  const pinned = await listDisplay();
+  must("open list shown when pinned, pointer elsewhere", pinned, pinned !== "none");
+  await shot("smoke-3-list.png");
+  await pickAt("employment", "1");
+  const chip = await driver.executeScript(`
+    const chip = document.querySelector(".chip");
+    if (!chip) return null;
+    chip.scrollIntoView({ block: "center" });
+    const host = document.getElementById("host"), h = host.getBoundingClientRect(), c = chip.getBoundingClientRect();
+    const paper = host.querySelector(".ProseMirror").getBoundingClientRect();
+    return { chip: [c.left, c.top, c.right, c.bottom], host: [h.left, h.top, h.left + host.clientWidth, h.top + host.clientHeight], paperLeft: paper.left };
+  `);
+  must("chip inside #host, left of the paper", chip, !!chip && chip.chip[0] >= chip.host[0] && chip.chip[1] >= chip.host[1] && chip.chip[2] <= chip.host[2] && chip.chip[3] <= chip.host[3] && chip.chip[2] <= chip.paperLeft);
   writeFileSync(join(out, "template.txt"), await call("templateText"));
   writeFileSync(join(out, "smoke-edit-text.txt"), await call("text"));
 }
@@ -125,7 +149,7 @@ async function filmScript(scene) {
   await driver.executeScript("document.getElementById('host').scrollTop = 0");
   await driver.sleep(900);
 
-  scene("A. Tab으로 받아들이면 문서가 되고, 오른쪽에 아직 열린 항목 목록이 생깁니다");
+  scene("A. Tab으로 받아들이면 문서가 되고, 오른쪽 아래 버튼에 아직 열린 항목 수가 나옵니다");
   await press(Key.TAB);
   await driver.sleep(HOLD);
   check("A: accepted, title is the template's", (await call("text")).startsWith("근 로 계 약 서"));
@@ -266,7 +290,9 @@ async function filmScript(scene) {
   await driver.sleep(HOLD + 600);
   await shot("film-d4-unread.png");
   check("D: unread kept as typed", await call("value", "hourly_add"));
-  scene("G. 읽지 못한 칸은 오른쪽 목록에 남습니다. 눌러서 그 칸으로 가 ‘6000’으로 고칩니다");
+  scene("G. 읽지 못한 칸은 오른쪽 아래 버튼의 목록에 남습니다. 눌러서 그 칸으로 가 ‘6000’으로 고칩니다");
+  await pinList();
+  await driver.sleep(1400);
   await clickItem("추가 근로 가산액");
   await driver.sleep(1600);
   await type("6000", 120);
@@ -301,7 +327,7 @@ async function filmScript(scene) {
   await press(Key.TAB);
   await driver.sleep(800);
 
-  scene("G. 오른쪽 목록에 남은 것: 근무장소와 고정OT 시간. 둘 다 가이드가 정한 계산으로 제안이 있습니다");
+  scene("G. 오른쪽 아래 목록에 남은 것: 근무장소와 고정OT 시간. 둘 다 가이드가 정한 계산으로 제안이 있습니다");
   await driver.sleep(HOLD + 600);
   await shot("film-g1-open-list.png");
   check("G: open items before the last two", await call("items"));
@@ -559,7 +585,24 @@ async function click(css) {
   await driver.findElement(By.css(css)).click();
 }
 
+async function pinList() {
+  if (!(await driver.executeScript("return document.getElementById('open').classList.contains('pinned')"))) await click("#open-toggle");
+}
+
+function listDisplay() {
+  return driver.executeScript("return getComputedStyle(document.getElementById('open-list')).display");
+}
+
+async function layout() {
+  return driver.executeScript(`
+    const host = document.getElementById("host"), h = host.getBoundingClientRect();
+    const paper = host.querySelector(".ProseMirror"), p = paper.getBoundingClientRect(), s = getComputedStyle(paper);
+    return { left: p.left - h.left, right: h.left + host.clientWidth - p.right, pads: [s.paddingTop, s.paddingRight, s.paddingBottom, s.paddingLeft] };
+  `);
+}
+
 async function clickItem(label) {
+  await pinList();
   const items = await driver.findElements(By.css("#open li"));
   for (const item of items) {
     if ((await item.findElement(By.css(".label")).getText()) === label) return item.click();
