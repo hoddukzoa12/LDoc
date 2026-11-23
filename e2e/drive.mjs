@@ -80,6 +80,12 @@ async function smoke() {
   must("paper centred in #host", page, Math.abs(page.left - page.right) <= 1 && new Set(page.pads).size === 1);
   const unpinned = await listDisplay();
   must("open list hidden by default", unpinned, unpinned === "none");
+  await driver.actions().move({ origin: await driver.findElement(By.css("#open-toggle")) }).perform();
+  const hovered = await listDisplay();
+  must("open list shown on hover", hovered, hovered !== "none");
+  await driver.actions().move({ x: 20, y: 400 }).perform();
+  const left = await listDisplay();
+  must("open list hidden again when the pointer leaves", left, left === "none");
   await pinList();
   await driver.actions().move({ x: 20, y: 400 }).perform();
   const pinned = await listDisplay();

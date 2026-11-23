@@ -11,10 +11,10 @@
       #host { --page-pad: 72px; --gutter: 190px; flex: 1; min-height: 0; overflow: auto; position: relative; padding: 24px var(--gutter) 80px; }
       #open { position: fixed; right: 24px; bottom: 24px; z-index: 5; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; font-size: 13px; }
       #open[hidden] { display: none; }
-      #open-list { display: none; width: 300px; max-height: min(60vh, 520px); overflow: auto; box-sizing: border-box; padding: 10px 12px; background: #fff; border: 1px solid #d0d4da; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12); }
+      #open-list { display: none; width: 256px; max-height: min(60vh, 520px); overflow: auto; box-sizing: border-box; padding: 10px 12px; background: #fff; border: 1px solid #d0d4da; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12); }
       #open:hover #open-list:not(:empty), #open.pinned #open-list:not(:empty) { display: block; }
       #open-toggle { padding: 6px 14px; border-radius: 16px; border: 1px solid #d0d4da; background: #fff; color: #1f2937; font: inherit; font-weight: 600; cursor: pointer; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15); }
-      #open-toggle:hover, #open.pinned #open-toggle { background: #f3f4f6; }
+      #open-toggle:hover, #open.pinned #open-toggle { filter: brightness(0.95); }
       #open-toggle.warn { color: #b45309; border-color: #f5c26b; background: #fff7e6; }
       #open-toggle.done { color: #166534; border-color: #86d1a3; background: #eefbf3; }
       #open .muted { margin: 0 0 8px; color: #6b7280; }
