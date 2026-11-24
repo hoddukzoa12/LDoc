@@ -90,6 +90,8 @@ async function smoke() {
   await driver.actions().move({ x: 20, y: 400 }).perform();
   const pinned = await listDisplay();
   must("open list shown when pinned, pointer elsewhere", pinned, pinned !== "none");
+  const expanded = await driver.executeScript("return document.getElementById('open-toggle').getAttribute('aria-expanded')");
+  must("button reports the pinned list as expanded", expanded, expanded === "true");
   await shot("smoke-3-list.png");
   await pickAt("employment", "1");
   const chip = await driver.executeScript(`
@@ -352,6 +354,7 @@ async function filmScript(scene) {
   scene("G. 남은 항목 없음: 갈래를 다 고르고 빈칸을 다 채웠습니다");
   await driver.sleep(HOLD);
   check("G: open items at the end", await call("items"));
+  check("G: an empty pinned list is not reported as expanded", await driver.executeScript("return document.getElementById('open-toggle').getAttribute('aria-expanded')"));
   await shot("film-g4-done.png");
 
   const text = await call("text");

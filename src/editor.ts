@@ -673,7 +673,10 @@ export function mountEditor(host: HTMLElement, panel: HTMLElement, T: Template, 
   const list = panel.querySelector<HTMLElement>("#open-list")!;
   const toggle = panel.querySelector<HTMLButtonElement>("#open-toggle")!;
   toggle.addEventListener("mousedown", (event) => event.preventDefault());
-  toggle.addEventListener("click", () => toggle.setAttribute("aria-expanded", String(panel.classList.toggle("pinned"))));
+  toggle.addEventListener("click", () => {
+    panel.classList.toggle("pinned");
+    refreshPanel();
+  });
 
   let items: Item[] = [];
   function refreshPanel() {
@@ -684,6 +687,7 @@ export function mountEditor(host: HTMLElement, panel: HTMLElement, T: Template, 
     const bad = items.filter((item) => item.tone === "bad").length;
     toggle.textContent = items.length ? `남은 항목 ${firm}${bad ? ` · 읽지 못함 ${bad}` : ""}` : "남은 항목 없음";
     toggle.className = items.length ? (bad ? "warn" : "") : "done";
+    toggle.setAttribute("aria-expanded", String(panel.classList.contains("pinned") && items.length > 0));
     list.replaceChildren();
     if (cond) {
       const p = document.createElement("p");
